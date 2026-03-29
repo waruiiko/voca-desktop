@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \":*)",
+      "Bash(npm install:*)",
+      "Bash(./node_modules/.bin/electron-rebuild -f -w uiohook-napi)",
+      "Bash(tasklist)",
+      "Bash(taskkill /F /IM electron.exe)",
+      "Bash(taskkill //F //IM electron.exe)",
+      "Bash(node -e \"const m = require\\(''''./node_modules/uiohook-napi/package.json''''\\); console.log\\(m.main, m.gypfile, Object.keys\\(m\\)\\)\")",
+      "Bash(powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \":*)",
+      "Bash(npm run:*)"
+    ]
+  }
+}
