@@ -9,7 +9,8 @@
       "Bash(taskkill //F //IM electron.exe)",
       "Bash(node -e \"const m = require\\(''''./node_modules/uiohook-napi/package.json''''\\); console.log\\(m.main, m.gypfile, Object.keys\\(m\\)\\)\")",
       "Bash(powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \":*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(dir \"c:\\\\Users\\\\Q\\\\Coding\\\\voca-desktop\\\\release\\\\win-unpacked\" /b)"
     ]
   }
 }

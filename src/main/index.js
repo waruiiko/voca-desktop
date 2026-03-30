@@ -2,7 +2,7 @@ const { app, BrowserWindow, globalShortcut, clipboard, ipcMain, Tray, Menu, nati
 const path = require('path');
 const fs = require('fs');
 
-const isDev = process.env.NODE_ENV === 'development';
+const isDev = !!process.env.VITE_DEV_SERVER_URL;
 const RENDERER_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
 let DATA_FILE, SETTINGS_FILE;
 
@@ -108,7 +108,7 @@ function createMainWindow() {
     backgroundColor: '#f5f5f7',
   });
   if (isDev) mainWindow.loadURL(RENDERER_URL);
-  else mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'));
+  else mainWindow.loadFile(path.join(app.getAppPath(), 'src/renderer/dist/index.html'));
   mainWindow.on('close', (e) => { e.preventDefault(); mainWindow.hide(); });
 }
 
@@ -122,7 +122,7 @@ function createOverlayWindow() {
   });
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
   if (isDev) overlayWindow.loadURL(`${RENDERER_URL}/#/overlay`);
-  else overlayWindow.loadFile(path.join(__dirname, '../../dist/index.html'), { hash: 'overlay' });
+  else overlayWindow.loadFile(path.join(app.getAppPath(), 'src/renderer/dist/index.html'), { hash: 'overlay' });
 
   let blurTimer = null;
   overlayWindow.on('blur', () => {
@@ -143,7 +143,7 @@ function createIconWindow() {
   });
   iconWindow.setAlwaysOnTop(true, 'screen-saver');
   if (isDev) iconWindow.loadURL(`${RENDERER_URL}/#/icon`);
-  else iconWindow.loadFile(path.join(__dirname, '../../dist/index.html'), { hash: 'icon' });
+  else iconWindow.loadFile(path.join(app.getAppPath(), 'src/renderer/dist/index.html'), { hash: 'icon' });
   iconWindow.on('blur', () => setTimeout(() => { if (!iconWindow.isDestroyed()) iconWindow.hide(); }, 150));
 }
 
@@ -161,7 +161,7 @@ function createScreenshotWindow() {
   });
   screenshotWindow.setAlwaysOnTop(true, 'screen-saver');
   if (isDev) screenshotWindow.loadURL(`${RENDERER_URL}/#/screenshot`);
-  else screenshotWindow.loadFile(path.join(__dirname, '../../dist/index.html'), { hash: 'screenshot' });
+  else screenshotWindow.loadFile(path.join(app.getAppPath(), 'src/renderer/dist/index.html'), { hash: 'screenshot' });
 }
 
 // ── 图标显示/隐藏 ─────────────────────────────────────────────────

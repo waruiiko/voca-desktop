@@ -1,20 +1,47 @@
 {
   "name": "voca-desktop",
   "version": "1.0.0",
-  "description": "Voca 桌面版 — 全局划词翻译 + 单词本 + 闪卡复习",
+  "description": "轻量桌面单词学习工具，支持全局划词翻译、OCR 截图识别、闪卡复习与生词本管理。",
   "main": "src/main/index.js",
   "author": "waruiiko",
   "license": "MIT",
   "scripts": {
     "dev": "node scripts/dev.js",
     "build": "vite build",
+    "dist": "vite build && electron-builder",
     "postinstall": "electron-rebuild -f -w uiohook-napi"
+  },
+  "build": {
+    "appId": "com.waruiiko.voca",
+    "productName": "Voca",
+    "copyright": "Copyright © 2025 waruiiko",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/renderer/dist/**/*",
+      "src/main/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Voca",
+      "language": "2052"
+    }
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.2",
     "@vitejs/plugin-vue": "^5.2.4",
     "concurrently": "^9.2.1",
     "electron": "^41.1.0",
+    "electron-builder": "^25.1.8",
     "vite": "^6.4.1",
     "vue": "^3.5.31",
     "vue-router": "^5.0.4",
