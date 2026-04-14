@@ -33,6 +33,9 @@ contextBridge.exposeInMainWorld('vocaAPI', {
   cancelScreenshot:   ()           => ipcRenderer.invoke('cancel-screenshot'),
   ocrResult:          (text)       => ipcRenderer.invoke('ocr-result', text),
   startOcrShortcut:   ()           => ipcRenderer.invoke('start-ocr-shortcut'),
+  // 开机自启
+  getLoginItem:       ()           => ipcRenderer.invoke('get-login-item'),
+  setLoginItem:       (enable)     => ipcRenderer.invoke('set-login-item', enable),
   // 最近查词
   getRecentLookups:   ()           => ipcRenderer.invoke('get-recent-lookups'),
   addRecentLookup:    (item)       => ipcRenderer.invoke('add-recent-lookup', item),

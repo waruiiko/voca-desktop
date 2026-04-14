@@ -149,6 +149,7 @@ onMounted(async () => {
     if (res.success && res.text) {
       await window.vocaAPI.addRecentLookup({ text: t, translation: res.text });
       recentLookups.value = await window.vocaAPI.getRecentLookups();
+      resizeWindow();
     }
   });
 });

@@ -60,7 +60,10 @@
       <div class="sidebar-shortcut">
         <div class="shortcut-label">全局划词翻译</div>
         <div class="shortcut-key">Ctrl+C+C</div>
-        <div class="shortcut-hint">选中文字后快速双击 Ctrl+C</div>
+        <div class="shortcut-hint">选中文字后按住 Ctrl 快速双击 C</div>
+        <div class="shortcut-label" style="margin-top:10px">OCR 截图翻译</div>
+        <div class="shortcut-key">Ctrl+Shift+O</div>
+        <div class="shortcut-hint">框选屏幕任意区域识别文字</div>
       </div>
     </aside>
 

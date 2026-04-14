@@ -103,6 +103,7 @@ function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1060, height: 700, minWidth: 860, minHeight: 520,
     title: 'Voca',
+    icon: path.join(app.getAppPath().replace('app.asar', 'app.asar.unpacked'), 'assets/favicon.ico'),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#f5f5f7',
@@ -443,13 +444,13 @@ function showOverlay(text) {
 
 // ── 系统托盘 ──────────────────────────────────────────────────────
 function createTray() {
-  const icon = nativeImage.createFromPath(path.join(__dirname, '../../assets/icon.png'));
+  const icon = nativeImage.createFromPath(path.join(app.getAppPath().replace('app.asar', 'app.asar.unpacked'), 'assets/icon.png'));
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
   tray.setToolTip('Voca');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '打开 Voca', click: () => { mainWindow?.show(); mainWindow?.focus(); } },
     { type: 'separator' },
-    { label: '退出', click: () => { app.quit(); } },
+    { label: '退出', click: () => { app.exit(0); } },
   ]));
   tray.on('double-click', () => { mainWindow?.show(); mainWindow?.focus(); });
 }
@@ -662,6 +663,12 @@ ipcMain.handle('ocr-result', (_, text) => {
 
 ipcMain.handle('start-ocr-shortcut', () => {
   createScreenshotWindow();
+});
+
+ipcMain.handle('get-login-item', () => app.getLoginItemSettings().openAtLogin);
+ipcMain.handle('set-login-item', (_, enable) => {
+  app.setLoginItemSettings({ openAtLogin: enable });
+  return true;
 });
 
 ipcMain.handle('get-recent-lookups', () => recentLookups);

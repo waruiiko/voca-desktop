@@ -54,6 +54,23 @@
         </div>
       </section>
 
+      <!-- 开机自启 -->
+      <section class="s-section">
+        <h2 class="s-title">系统</h2>
+        <div class="s-card">
+          <div class="s-row">
+            <div class="s-row-body">
+              <span class="s-label">开机自动启动</span>
+              <span class="s-desc">登录系统后自动在后台启动 Voca</span>
+            </div>
+            <label class="s-toggle">
+              <input type="checkbox" v-model="loginItem" @change="toggleLoginItem" />
+              <span class="s-toggle-track"></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
       <!-- 学习目标 -->
       <section class="s-section">
         <h2 class="s-title">学习目标</h2>
@@ -143,6 +160,7 @@ const settings = ref({
 });
 const saved = ref(false);
 const importingId = ref(null);
+const loginItem = ref(false);
 
 // TTS voices
 const allVoices = ref([]);
@@ -242,10 +260,14 @@ const presets = [
 onMounted(async () => {
   settings.value = await window.vocaAPI.loadSettings();
   if (!settings.value.ttsVoice) settings.value.ttsVoice = '';
+  loginItem.value = await window.vocaAPI.getLoginItem();
   loadVoices();
-  // voices may load async on some browsers/OS
   speechSynthesis.onvoiceschanged = loadVoices;
 });
+
+async function toggleLoginItem() {
+  await window.vocaAPI.setLoginItem(loginItem.value);
+}
 
 async function save() {
   await window.vocaAPI.saveSettings(settings.value);
@@ -333,6 +355,20 @@ async function importPreset(preset) {
 }
 .s-btn-import:hover { background: #4f52d3; }
 .s-btn-import:disabled { background: #aaa; cursor: not-allowed; }
+
+.s-toggle { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
+.s-toggle input { opacity: 0; width: 0; height: 0; }
+.s-toggle-track {
+  position: absolute; inset: 0; background: #ddd; border-radius: 12px;
+  cursor: pointer; transition: background 0.2s;
+}
+.s-toggle input:checked + .s-toggle-track { background: #6366f1; }
+.s-toggle-track::after {
+  content: ''; position: absolute; width: 18px; height: 18px;
+  background: #fff; border-radius: 50%; top: 3px; left: 3px;
+  transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.s-toggle input:checked + .s-toggle-track::after { transform: translateX(18px); }
 
 .s-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .btn-save {

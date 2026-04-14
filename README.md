@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.0.0-purple)
+![Version](https://img.shields.io/badge/version-1.0.2-purple)
 
 ## 下载
 
@@ -38,6 +38,25 @@ npm run dist
 ```
 
 **技术栈：** Electron · Vue 3 · Vite
+
+## 更新日志
+
+### v1.0.2
+- 修复应用图标未正确显示的问题
+- 新增开机自动启动开关（设置 → 系统）
+
+### v1.0.1
+- 新增数据自动备份（每次保存时自动生成 .bak 文件）
+- 新增悬浮窗最近查词记录（最多显示 5 条）
+- 新增 Anki 导出格式（TSV，可直接导入 Anki）
+- 新增每日学习目标设置与进度显示
+- 支持短语/长句收藏（字数限制从 500 提升至 5000）
+- 新增全局搜索（跨所有生词本）
+- 修复托盘退出无法真正退出程序的问题
+- 侧边栏新增 OCR 快捷键说明
+
+### v1.0.0
+- 首个正式版本发布
 
 ## License
 
