@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.0.3-purple)
+![Version](https://img.shields.io/badge/version-1.0.4-purple)
 
 ## 下载
 
@@ -40,6 +40,11 @@ npm run dist
 **技术栈：** Electron · Vue 3 · Vite
 
 ## 更新日志
+
+### v1.0.4
+- 新增本地 HTTP API（端口 27149），与 Voca 浏览器插件实时共享生词本
+  - `GET /words` 读取生词本，`POST /words` 新增词条，`DELETE /words/:key` 删除词条
+  - 插件收藏/删除时立即同步到桌面端，桌面端新词最多 1 分钟内同步到插件
 
 ### v1.0.3
 - 修复悬浮翻译窗口与"译"图标窗口的 CSS 样式泄漏导致主窗口白屏的问题

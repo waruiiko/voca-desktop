@@ -683,6 +683,93 @@ ipcMain.handle('add-recent-lookup', (_, item) => {
   return true;
 });
 
+// ── 本地 HTTP API（供浏览器插件共享生词本）────────────────────────
+function startApiServer() {
+  const http = require('http');
+  const PORT = 27149;
+
+  const server = http.createServer((req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+    const pathname = req.url.split('?')[0];
+
+    // GET /health
+    if (req.method === 'GET' && pathname === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, version: '1.0.3' }));
+      return;
+    }
+
+    // GET /words
+    if (req.method === 'GET' && pathname === '/words') {
+      const data = loadData();
+      const bookId = data.saveBookId || data.activeBookId;
+      const words = data.books[bookId]?.words || {};
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(words));
+      return;
+    }
+
+    // POST /words — 单个对象或数组，仅新增（不覆盖已有词条）
+    if (req.method === 'POST' && pathname === '/words') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const payload = JSON.parse(body);
+          const data = loadData();
+          const bookId = data.saveBookId || data.activeBookId;
+          const words = data.books[bookId]?.words;
+          if (!words) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'book not found' })); return; }
+          const items = Array.isArray(payload) ? payload : [payload];
+          for (const w of items) {
+            const key = (w.word || '').trim().toLowerCase();
+            if (!key) continue;
+            if (!words[key]) {
+              words[key] = { word: w.word.trim(), translation: w.translation || '', timestamp: w.timestamp || Date.now(), reviewCount: w.reviewCount || 0 };
+            }
+          }
+          saveData(data);
+          mainWindow?.webContents.send('words-updated');
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+      });
+      return;
+    }
+
+    // DELETE /words/:key
+    if (req.method === 'DELETE' && pathname.startsWith('/words/')) {
+      const key = decodeURIComponent(pathname.slice('/words/'.length)).toLowerCase();
+      const data = loadData();
+      const bookId = data.saveBookId || data.activeBookId;
+      if (data.books[bookId]?.words[key]) {
+        delete data.books[bookId].words[key];
+        saveData(data);
+        mainWindow?.webContents.send('words-updated');
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: 'not found' }));
+  });
+
+  server.listen(PORT, '127.0.0.1', () => {
+    console.log(`[Voca] API server → http://127.0.0.1:${PORT}`);
+  });
+  server.on('error', e => console.warn('[Voca] API server error:', e.message));
+}
+
 // ── App 生命周期 ──────────────────────────────────────────────────
 app.whenReady().then(() => {
   DATA_FILE = path.join(app.getPath('userData'), 'voca-words.json');
@@ -692,6 +779,7 @@ app.whenReady().then(() => {
   createIconWindow();
   createTray();
   startDoubleCtrlCDetection();
+  startApiServer();
 
   // 复习提醒：启动后 30 秒检查一次，之后每 30 分钟
   setTimeout(checkDueAndNotify, 30000);
