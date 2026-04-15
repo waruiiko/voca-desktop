@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.0.2-purple)
+![Version](https://img.shields.io/badge/version-1.0.3-purple)
 
 ## 下载
 
@@ -40,6 +40,10 @@ npm run dist
 **技术栈：** Electron · Vue 3 · Vite
 
 ## 更新日志
+
+### v1.0.3
+- 修复悬浮翻译窗口与"译"图标窗口的 CSS 样式泄漏导致主窗口白屏的问题
+- 修复 iconWindow 已销毁时触发 hide() 报错的问题
 
 ### v1.0.2
 - 修复应用图标未正确显示的问题

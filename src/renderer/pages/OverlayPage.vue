@@ -50,9 +50,11 @@
       </div>
     </div>
 
-    <div class="ov-word" style="white-space: pre-wrap">{{ text }}</div>
-    <div class="ov-translation" :class="{ loading }">
-      {{ loading ? '翻译中…' : (result || '未找到翻译') }}
+    <div class="ov-scroll">
+      <div class="ov-word" style="white-space: pre-wrap">{{ text }}</div>
+      <div class="ov-translation" :class="{ loading }">
+        {{ loading ? '翻译中…' : (result || '未找到翻译') }}
+      </div>
     </div>
     <div class="ov-actions">
       <button class="ov-btn ov-tts" @click="speak" title="朗读">🔊</button>
@@ -65,7 +67,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useTTS } from '../composables/useTTS.js';
 
 const { speak: ttsSpeak } = useTTS();
@@ -121,7 +123,13 @@ function resizeWindow() {
   });
 }
 
+onUnmounted(() => {
+  document.body.classList.remove('is-overlay');
+  document.removeEventListener('click', closeDropdowns);
+});
+
 onMounted(async () => {
+  document.body.classList.add('is-overlay');
   const settings = await window.vocaAPI.loadSettings();
   sl.value = settings.sourceLang || 'auto';
   tl.value = settings.targetLang || 'zh-CN';
@@ -214,17 +222,28 @@ async function togglePin() {
 
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { background: transparent; overflow: hidden; }
+body.is-overlay { background: transparent !important; overflow: hidden; }
 
 .overlay {
   background: #1e1530;
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 14px;
   padding: 10px 14px 12px;
-  width: 378px;
+  width: 100%;
+  min-width: 280px;
+  box-sizing: border-box;
   box-shadow: 0 8px 32px rgba(0,0,0,0.6);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.ov-scroll {
+  overflow-y: auto;
+  flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
 }
 
 /* Titlebar */

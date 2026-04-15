@@ -118,7 +118,8 @@ function createOverlayWindow() {
   overlayWindow = new BrowserWindow({
     width: 380, height: 160, show: false,
     frame: false, transparent: true, backgroundColor: '#00000000',
-    alwaysOnTop: true, skipTaskbar: true, resizable: false,
+    alwaysOnTop: true, skipTaskbar: true, resizable: true,
+    minWidth: 280, minHeight: 100,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   });
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
@@ -178,12 +179,14 @@ function showIcon(text) {
   iconWindow.setPosition(Math.round(x), Math.round(y));
   iconWindow.showInactive();
   if (iconHideTimer) clearTimeout(iconHideTimer);
-  iconHideTimer = setTimeout(() => iconWindow?.hide(), 4000);
+  iconHideTimer = setTimeout(() => {
+    if (iconWindow && !iconWindow.isDestroyed()) iconWindow.hide();
+  }, 4000);
 }
 
 function hideIcon() {
   if (iconHideTimer) { clearTimeout(iconHideTimer); iconHideTimer = null; }
-  iconWindow?.hide();
+  if (iconWindow && !iconWindow.isDestroyed()) iconWindow.hide();
 }
 
 // ── 复习到期提醒 ──────────────────────────────────────────────────
@@ -488,10 +491,13 @@ ipcMain.handle('resize-overlay', (_, w, h) => {
   if (!overlayWindow || overlayWindow.isDestroyed()) return;
   const [cx, cy] = overlayWindow.getPosition();
   const { workArea: wa } = screen.getDisplayNearestPoint({ x: cx, y: cy });
-  const newH = Math.min(h, wa.height - 20);
+  const maxH = Math.floor(wa.height * 0.85);
+  const newH = Math.min(h, maxH);
+  const newW = Math.min(Math.max(w, 280), wa.width - 20);
+  const newX = Math.min(cx, wa.x + wa.width - newW);
   const newY = Math.min(cy, wa.y + wa.height - newH);
-  overlayWindow.setSize(Math.round(w), Math.round(newH));
-  overlayWindow.setPosition(cx, Math.round(newY));
+  overlayWindow.setSize(Math.round(newW), Math.round(newH));
+  overlayWindow.setPosition(Math.round(newX), Math.round(newY));
 });
 
 ipcMain.handle('open-translate', (_, text) => {
