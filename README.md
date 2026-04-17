@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.0.4-purple)
+![Version](https://img.shields.io/badge/version-1.0.5-purple)
 
 ## 下载
 
@@ -40,6 +40,13 @@ npm run dist
 **技术栈：** Electron · Vue 3 · Vite
 
 ## 更新日志
+
+### v1.0.5
+- 单词详情页：无翻译时自动调用翻译接口补全，无需手动输入
+- 单词详情页：新增多义词展示（按词性分组），点击任意义项可一键设为主翻译
+- 单词详情页：词典释义展示所有词性与定义（原先限制 2 条）
+- 单词详情页：点击近义词/反义词可直接跳转到该词的详情页
+- 单词详情页：新增收藏/取消收藏按钮，未收藏单词不会被误存
 
 ### v1.0.4
 - 新增本地 HTTP API（端口 27149），与 Voca 浏览器插件实时共享生词本

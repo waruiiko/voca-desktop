@@ -117,10 +117,14 @@
           :word="detailWord"
           :books="data.books"
           :currentBookId="data.activeBookId"
+          :isSaved="isDetailWordSaved"
           @close="detailWord = null"
           @update="onDetailUpdate"
           @move="onWordMove"
           @copy="onWordCopy"
+          @lookup="lookupWord"
+          @save="saveDetailWord"
+          @unsave="unsaveDetailWord"
         />
       </div>
 
@@ -205,6 +209,10 @@ import StatsPage from './StatsPage.vue';
 const tab = ref('words');
 const translateRef = ref(null);
 const detailWord = ref(null);
+const isDetailWordSaved = computed(() => {
+  if (!detailWord.value?.key) return false;
+  return Object.values(data.value.books || {}).some(b => !!b.words[detailWord.value.key]);
+});
 const search = ref('');
 const data = ref({ activeBookId: 'default', saveBookId: 'default', flashPool: [], books: { default: { name: '默认生词本', words: {} } } });
 const settings = ref({ dailyGoal: 10 });
@@ -307,6 +315,49 @@ function openDetail(w) {
   detailWord.value = w;
 }
 
+async function unsaveDetailWord(w) {
+  const key = w.word.trim().toLowerCase();
+  const updatedBooks = { ...data.value.books };
+  for (const [id, book] of Object.entries(updatedBooks)) {
+    if (book.words[key]) {
+      const words = { ...book.words };
+      delete words[key];
+      updatedBooks[id] = { ...book, words };
+    }
+  }
+  const updated = { ...data.value, books: updatedBooks };
+  data.value = updated;
+  await window.vocaAPI.saveData(toPlain(updated));
+  window.vocaAPI.notifyWordsUpdated();
+}
+
+async function saveDetailWord(w) {
+  const key = w.word.trim().toLowerCase();
+  const saveBookId = data.value.saveBookId || data.value.activeBookId;
+  const book = data.value.books[saveBookId];
+  if (!book || book.words[key]) return;
+  const newWord = { word: w.word.trim(), key, translation: w.translation || '', timestamp: Date.now(), reviewCount: 0 };
+  const updated = {
+    ...data.value,
+    books: { ...data.value.books, [saveBookId]: { ...book, words: { ...book.words, [key]: newWord } } },
+  };
+  data.value = updated;
+  await window.vocaAPI.saveData(toPlain(updated));
+  window.vocaAPI.notifyWordsUpdated();
+  detailWord.value = { ...newWord };
+}
+
+function lookupWord(word) {
+  const key = word.trim().toLowerCase();
+  for (const book of Object.values(data.value.books || {})) {
+    if (book.words[key]) {
+      detailWord.value = { ...book.words[key], key };
+      return;
+    }
+  }
+  detailWord.value = { word: word.trim(), key, translation: '', reviewCount: 0 };
+}
+
 // ── 闪卡池管理 ────────────────────────────────────────────────────
 function isInPool(w) {
   return poolSet.value.has(data.value.activeBookId + ':' + w.key);
@@ -402,10 +453,8 @@ function onWordCopy({ word, targetId }) {
 }
 
 async function onDetailUpdate(updatedWord) {
-  // Also update the in-memory data so the list reflects the change
-  await onCardUpdate(updatedWord);
-  // Keep detailWord in sync
   detailWord.value = { ...detailWord.value, ...updatedWord };
+  if (isDetailWordSaved.value) await onCardUpdate(updatedWord);
 }
 
 function createBook() {

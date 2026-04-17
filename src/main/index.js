@@ -532,13 +532,29 @@ ipcMain.handle('get-word-detail', async (_, word) => {
     return {
       success: true,
       phonetic: entry.phonetic || entry.phonetics?.find(p => p.text)?.text || '',
-      meanings: entry.meanings?.slice(0, 2).map(m => ({
+      meanings: entry.meanings?.map(m => ({
         partOfSpeech: m.partOfSpeech,
-        definitions: m.definitions?.slice(0, 2).map(d => ({ definition: d.definition, example: d.example || '' })),
-        synonyms: m.synonyms?.slice(0, 6) || [],
-        antonyms: m.antonyms?.slice(0, 4) || [],
+        definitions: m.definitions?.slice(0, 4).map(d => ({ definition: d.definition, example: d.example || '' })),
+        synonyms: m.synonyms?.slice(0, 8) || [],
+        antonyms: m.antonyms?.slice(0, 6) || [],
       })),
     };
+  } catch {
+    return { success: false };
+  }
+});
+
+ipcMain.handle('get-word-meanings', async (_, word, tl) => {
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${tl || 'zh-CN'}&dt=t&dt=bd&q=${encodeURIComponent(word)}`;
+    const res = await fetch(url);
+    if (!res.ok) return { success: false };
+    const d = await res.json();
+    const meanings = (d[1] || []).map(entry => ({
+      pos: entry[0],
+      translations: (entry[2] || []).slice(0, 6).map(t => t[0]),
+    })).filter(m => m.translations.length > 0);
+    return { success: true, meanings };
   } catch {
     return { success: false };
   }

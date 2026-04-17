@@ -14,8 +14,11 @@
           <div class="wd-phonetic" v-if="detail?.phonetic">{{ detail.phonetic }}</div>
           <button class="wd-tts" @click="speak">🔊 朗读</button>
         </div>
-        <div class="wd-hero-right">
+        <div class="wd-hero-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
           <span class="wd-badge" :class="memClass">{{ memLabel }}</span>
+          <button class="wd-save-btn" :class="{ saved: isSaved }" @click="isSaved ? emit('unsave', word) : emit('save', word)">
+            {{ isSaved ? '✕ 取消收藏' : '⭐ 收藏' }}
+          </button>
         </div>
       </div>
 
@@ -24,7 +27,8 @@
         <div class="wd-section-title">翻译</div>
         <div class="wd-trans-row">
           <div v-if="!editingTrans" class="wd-trans" @dblclick="startEditTrans">
-            {{ word.translation || '暂无翻译，双击添加' }}
+            <span v-if="transLoading" class="wd-trans-loading">翻译中…</span>
+            <span v-else>{{ word.translation || '暂无翻译，双击添加' }}</span>
           </div>
           <div v-else class="wd-trans-edit">
             <input
@@ -35,6 +39,13 @@
               @blur="commitTrans"
               ref="transInputRef"
             />
+          </div>
+        </div>
+        <!-- 多义词 -->
+        <div class="wd-meanings-zh" v-if="meanings.length">
+          <div class="wd-meaning-zh" v-for="m in meanings" :key="m.pos">
+            <span class="wd-pos-zh">{{ m.pos }}</span>
+            <span class="wd-trans-chip" v-for="t in m.translations" :key="t" @click="setTrans(t)">{{ t }}</span>
           </div>
         </div>
       </div>
@@ -53,11 +64,11 @@
             </ol>
             <div class="wd-tags" v-if="m.synonyms?.length">
               <span class="wd-tag-label">近义词</span>
-              <span class="wd-tag syn" v-for="s in m.synonyms" :key="s">{{ s }}</span>
+              <span class="wd-tag syn" v-for="s in m.synonyms" :key="s" @click="emit('lookup', s)">{{ s }}</span>
             </div>
             <div class="wd-tags" v-if="m.antonyms?.length">
               <span class="wd-tag-label ant">反义词</span>
-              <span class="wd-tag ant" v-for="s in m.antonyms" :key="s">{{ s }}</span>
+              <span class="wd-tag ant" v-for="s in m.antonyms" :key="s" @click="emit('lookup', s)">{{ s }}</span>
             </div>
           </div>
         </div>
@@ -143,13 +154,15 @@
 import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import { useTTS } from '../composables/useTTS.js';
 
-const props = defineProps({ word: Object, books: Object, currentBookId: String });
-const emit = defineEmits(['close', 'update', 'move', 'copy']);
+const props = defineProps({ word: Object, books: Object, currentBookId: String, isSaved: Boolean });
+const emit = defineEmits(['close', 'update', 'move', 'copy', 'lookup', 'save', 'unsave']);
 const { speak: ttsSpeak } = useTTS();
 
 const detail = ref(null);
 const detailLoading = ref(false);
+const transLoading = ref(false);
 const editingTrans = ref(false);
+const meanings = ref([]);
 const transValue = ref('');
 const transInputRef = ref(null);
 const showMoveModal = ref(false);
@@ -184,8 +197,34 @@ async function fetchDetail() {
   detailLoading.value = false;
 }
 
-onMounted(fetchDetail);
-watch(() => props.word.key, fetchDetail);
+async function autoTranslate() {
+  if (props.word.translation) return;
+  const w = props.word.word?.trim();
+  if (!w) return;
+  transLoading.value = true;
+  const settings = await window.vocaAPI.loadSettings();
+  const res = await window.vocaAPI.translate(w, 'auto', settings.targetLang || 'zh-CN');
+  transLoading.value = false;
+  if (res.success && res.text) {
+    emit('update', { ...props.word, translation: res.text });
+  }
+}
+
+async function fetchMeanings() {
+  meanings.value = [];
+  const w = props.word.word?.trim();
+  if (!w || /\s{2,}/.test(w) || /[\u4e00-\u9fa5]/.test(w)) return;
+  const settings = await window.vocaAPI.loadSettings();
+  const res = await window.vocaAPI.getWordMeanings(w, settings.targetLang || 'zh-CN');
+  if (res.success) meanings.value = res.meanings;
+}
+
+function setTrans(t) {
+  emit('update', { ...props.word, translation: t });
+}
+
+onMounted(() => { fetchDetail(); autoTranslate(); fetchMeanings(); });
+watch(() => props.word.key, () => { fetchDetail(); autoTranslate(); fetchMeanings(); });
 
 function speak() {
   ttsSpeak(props.word.word, 'en-US');
@@ -262,6 +301,14 @@ function fmtDate(ts) {
   font-family: inherit; width: fit-content; transition: border-color 0.12s;
 }
 .wd-tts:hover { border-color: #6366f1; color: #6366f1; }
+.wd-save-btn {
+  background: rgba(255,208,102,0.12); border: 1.5px solid rgba(255,208,102,0.4);
+  border-radius: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer;
+  color: #b8860b; font-family: inherit; transition: all 0.12s;
+}
+.wd-save-btn:hover { background: rgba(255,208,102,0.25); border-color: #ffd066; color: #996600; }
+.wd-save-btn.saved { background: rgba(255,154,154,0.1); border-color: rgba(255,154,154,0.4); color: #c0392b; }
+.wd-save-btn.saved:hover { background: rgba(255,154,154,0.2); border-color: #ff9a9a; }
 .wd-badge {
   font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 12px;
   margin-top: 4px;
@@ -366,4 +413,14 @@ function fmtDate(ts) {
 .wd-stat-v { font-size: 18px; font-weight: 700; color: #1a1a1a; }
 .wd-stat-l { font-size: 11px; color: #aaa; }
 .wd-loading { font-size: 13px; color: #bbb; text-align: center; padding: 8px 0; }
+.wd-trans-loading { font-size: 16px; color: #bbb; font-style: italic; }
+.wd-meanings-zh { margin-top: 12px; display: flex; flex-direction: column; gap: 7px; border-top: 1px solid #f0f0f0; padding-top: 12px; }
+.wd-meaning-zh { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.wd-pos-zh { font-size: 10px; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: .4px; min-width: 36px; }
+.wd-trans-chip {
+  font-size: 13px; padding: 3px 10px; border-radius: 10px;
+  background: rgba(99,102,241,0.07); color: #555; cursor: pointer;
+  transition: all 0.12s; border: 1px solid transparent;
+}
+.wd-trans-chip:hover { background: rgba(99,102,241,0.15); color: #6366f1; border-color: rgba(99,102,241,0.2); }
 </style>

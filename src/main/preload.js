@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('vocaAPI', {
   translate:          (text, sl, tl) => ipcRenderer.invoke('translate', text, sl, tl),
   // 单词详情（Free Dictionary API）
   getWordDetail:      (word)       => ipcRenderer.invoke('get-word-detail', word),
+  // 多义词翻译（Google Translate dt=bd）
+  getWordMeanings:    (word, tl)   => ipcRenderer.invoke('get-word-meanings', word, tl),
   // 悬浮窗
   hideOverlay:        ()           => ipcRenderer.invoke('hide-overlay'),
   showMain:           ()           => ipcRenderer.invoke('show-main'),
