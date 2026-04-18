@@ -138,8 +138,8 @@ function createOverlayWindow() {
 // ── 悬浮图标窗口 ──────────────────────────────────────────────────
 function createIconWindow() {
   iconWindow = new BrowserWindow({
-    width: 44, height: 44, show: false,
-    frame: false, transparent: false, backgroundColor: '#6366f1',
+    width: 32, height: 32, minWidth: 32, minHeight: 32, maxWidth: 32, maxHeight: 32,
+    show: false, frame: false, transparent: false, backgroundColor: '#6366f1',
     alwaysOnTop: true, skipTaskbar: true, resizable: false,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   });
@@ -181,7 +181,7 @@ function showIcon(text) {
   if (iconHideTimer) clearTimeout(iconHideTimer);
   iconHideTimer = setTimeout(() => {
     if (iconWindow && !iconWindow.isDestroyed()) iconWindow.hide();
-  }, 4000);
+  }, 1000);
 }
 
 function hideIcon() {
