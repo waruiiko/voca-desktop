@@ -138,14 +138,17 @@ function createOverlayWindow() {
 // ── 悬浮图标窗口 ──────────────────────────────────────────────────
 function createIconWindow() {
   iconWindow = new BrowserWindow({
-    width: 32, height: 32, minWidth: 32, minHeight: 32, maxWidth: 32, maxHeight: 32,
-    show: false, frame: false, transparent: false, backgroundColor: '#6366f1',
+    width: 32, height: 32, show: false,
+    frame: false, transparent: true,
     alwaysOnTop: true, skipTaskbar: true, resizable: false,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   });
   iconWindow.setAlwaysOnTop(true, 'screen-saver');
   if (isDev) iconWindow.loadURL(`${RENDERER_URL}/#/icon`);
   else iconWindow.loadFile(path.join(app.getAppPath(), 'src/renderer/dist/index.html'), { hash: 'icon' });
+  iconWindow.webContents.on('did-finish-load', () => {
+    if (!iconWindow.isDestroyed()) iconWindow.setSize(32, 32);
+  });
   iconWindow.on('blur', () => setTimeout(() => { if (!iconWindow.isDestroyed()) iconWindow.hide(); }, 150));
 }
 
@@ -174,8 +177,9 @@ function showIcon(text) {
   pendingText = text;
   const point = screen.getCursorScreenPoint();
   const { workArea: wa } = screen.getDisplayNearestPoint(point);
-  const x = Math.max(wa.x, Math.min(point.x + 16, wa.x + wa.width - 44));
-  const y = Math.max(wa.y, Math.min(point.y + 16, wa.y + wa.height - 44));
+  const x = Math.max(wa.x, Math.min(point.x + 16, wa.x + wa.width - 32));
+  const y = Math.max(wa.y, Math.min(point.y + 16, wa.y + wa.height - 32));
+  iconWindow.setSize(32, 32);
   iconWindow.setPosition(Math.round(x), Math.round(y));
   iconWindow.showInactive();
   if (iconHideTimer) clearTimeout(iconHideTimer);
@@ -716,7 +720,7 @@ function startApiServer() {
     // GET /health
     if (req.method === 'GET' && pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, version: '1.0.3' }));
+      res.end(JSON.stringify({ ok: true, version: '1.0.7' }));
       return;
     }
 

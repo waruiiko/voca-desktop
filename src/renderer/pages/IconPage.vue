@@ -18,14 +18,14 @@ function translate() {
 body.is-icon {
   width: 32px; height: 32px;
   max-width: 32px; max-height: 32px;
-  overflow: hidden; background: #6366f1 !important;
+  overflow: hidden; background: transparent !important;
 }
-
 .icon-btn {
   width: 32px; height: 32px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; user-select: none;
   transition: opacity 0.1s; overflow: hidden;
+  background: #6366f1; border-radius: 10px;
 }
 .icon-btn:hover  { opacity: 0.88; }
 .icon-btn:active { opacity: 0.7; }

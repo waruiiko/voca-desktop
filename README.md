@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.0.6-purple)
+![Version](https://img.shields.io/badge/version-1.0.7-purple)
 
 ## 下载
 
@@ -40,6 +40,9 @@ npm run dist
 **技术栈：** Electron · Vue 3 · Vite
 
 ## 更新日志
+
+### v1.0.7
+- "译"图标添加圆角，视觉更美观
 
 ### v1.0.6
 - 修复"译"图标按钮尺寸过大的问题，缩小至 32×32px 并加硬限制防止撑大

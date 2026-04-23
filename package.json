@@ -1,6 +1,6 @@
 {
   "name": "voca-desktop",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "轻量桌面单词学习工具，支持全局划词翻译、OCR 截图识别、闪卡复习与生词本管理。",
   "main": "src/main/index.js",
   "author": "waruiiko",
