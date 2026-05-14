@@ -71,6 +71,39 @@
         </div>
       </section>
 
+      <!-- 同步与备份 -->
+      <section class="s-section">
+        <h2 class="s-title">同步与备份</h2>
+        <div class="s-card">
+          <div class="s-row">
+            <div class="s-row-body">
+              <span class="s-label">浏览器插件同步</span>
+              <span class="s-desc">
+                {{ syncStatus.running ? `本地同步服务运行中：127.0.0.1:${syncStatus.port}` : `同步服务未启动${syncStatus.error ? '：' + syncStatus.error : ''}` }}
+              </span>
+            </div>
+            <button class="s-btn-preview" @click="refreshSyncStatus">刷新</button>
+          </div>
+          <div class="s-row">
+            <div class="s-row-body">
+              <span class="s-label">数据备份</span>
+              <span class="s-desc">每次保存前自动保留最近 20 份数据快照</span>
+            </div>
+            <button class="s-btn-preview" @click="loadBackups">查看备份</button>
+          </div>
+          <div class="backup-list" v-if="showBackups">
+            <div class="backup-empty" v-if="!backups.length">暂无可恢复的备份</div>
+            <div class="backup-item" v-for="b in backups" :key="b.path">
+              <div>
+                <div class="backup-name">{{ formatBackupTime(b.time) }}</div>
+                <div class="backup-meta">{{ Math.max(1, Math.round(b.size / 1024)) }} KB</div>
+              </div>
+              <button class="s-btn-restore" @click="restoreBackup(b)">恢复</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- 学习目标 -->
       <section class="s-section">
         <h2 class="s-title">学习目标</h2>
@@ -120,6 +153,7 @@
       <div class="s-actions">
         <button class="btn-save" @click="save">保存设置</button>
         <span class="save-hint" v-if="saved">✓ 已保存</span>
+        <span class="save-hint" v-if="notice">{{ notice }}</span>
       </div>
     </template>
 
@@ -145,6 +179,8 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { TIER1, TIER2, TIER3 } from '../shared/wordFrequency.js';
+import { WORD_BOOKS } from '../shared/wordBooks.js';
 
 const emit = defineEmits(['preset-imported']);
 
@@ -159,8 +195,12 @@ const settings = ref({
   dailyGoal: 10,
 });
 const saved = ref(false);
+const notice = ref('');
 const importingId = ref(null);
 const loginItem = ref(false);
+const syncStatus = ref({ running: false, port: 27149, error: '' });
+const backups = ref([]);
+const showBackups = ref(false);
 
 // TTS voices
 const allVoices = ref([]);
@@ -209,61 +249,57 @@ const sourceLangs = [
 const targetLangs = sourceLangs.filter(l => l.code !== 'auto');
 
 const presets = [
-  {
-    id: 'ielts',
-    name: 'IELTS 学术词汇',
-    words: [
-      'abandon','abstract','access','accommodate','accompany','accumulate','accurate','achieve',
-      'acknowledge','acquire','adapt','adequate','adjacent','advocate','aggregate','allocate',
-      'alter','ambiguous','analyze','anticipate','apparent','approximate','arbitrary','aspect',
-      'assess','assign','assist','assume','assure','attain','attribute','author','benefit',
-      'capacity','category','cease','challenge','circumstance','cite','clarify','classic',
-      'coefficient','coherent','coincide','collapse','colleague','commence','commission',
-      'commit','communicate','community','compensate','compile','complement','component',
-      'comprehensive','concentrate','concept','conclude','conduct','confer','consequent',
-      'considerable','constitute','construct','consume','context','contradict','contribute',
-      'controversy','convert','cooperate','criteria','crucial','culture','deduce','definite',
-    ],
-  },
-  {
-    id: 'toefl',
-    name: 'TOEFL 核心词汇',
-    words: [
-      'abolish','absorb','accelerate','acclaim','accomplish','accumulate','accurate','achieve',
-      'acknowledge','acquire','adequate','adjacent','advocate','affect','aggregate','alter',
-      'ambiguous','analyze','assert','assess','assume','attribute','augment','beneficial',
-      'capacity','category','coherent','collapse','compensate','compile','comprehensive',
-      'concentrate','conclude','confer','considerable','constitute','contrast','controversy',
-      'convert','crucial','deduce','demonstrate','depict','derive','designate','despite',
-      'detect','determine','develop','diminish','displace','distinct','distribute','dominate',
-      'eliminate','emerge','emphasize','enable','enhance','ensure','establish','evaluate',
-      'evolve','exclude','expand','exploit','expose','extent','facilitate','feature','flexible',
-    ],
-  },
-  {
-    id: 'gre',
-    name: 'GRE 高频词汇',
-    words: [
-      'abjure','abscond','acquiesce','acrimony','acumen','adumbrate','alacrity','amalgamate',
-      'ameliorate','anachronism','anodyne','antipathy','apocryphal','apotheosis','approbation',
-      'arcane','arduous','arrogate','ascetic','assuage','audacious','auspicious','aver',
-      'banal','belabor','belie','bellicose','bombast','bucolic','burgeon','cacophony',
-      'capricious','castigate','censure','chicanery','clemency','coalesce','compunction',
-      'confound','convoluted','craven','cupidity','daunt','dearth','debacle','decry',
-      'deferential','deleterious','desultory','diatribe','didactic','diffident','discern',
-      'discomfit','disinterested','disparage','dissemble','dogmatic','ebullient','enervate',
-      'ephemeral','equivocate','erudite','esoteric','exacerbate','exculpate','exiguous',
-    ],
-  },
+  { id: 'tier1', name: 'A1 入门词汇', words: [...TIER1].sort() },
+  { id: 'a2', name: 'A2 初级词汇', words: [...WORD_BOOKS.a2].sort() },
+  { id: 'tier2', name: 'B1 中级词汇', words: [...TIER2].sort() },
+  { id: 'b2', name: 'B2 中高级词汇', words: [...WORD_BOOKS.b2].sort() },
+  { id: 'tier3', name: 'C1 高级词汇', words: [...TIER3].sort() },
+  { id: 'c2', name: 'C2 精通词汇', words: [...WORD_BOOKS.c2].sort() },
+  { id: 'cet4', name: 'CET4 四级词汇', words: [...WORD_BOOKS.cet4].sort() },
+  { id: 'cet6', name: 'CET6 六级词汇', words: [...WORD_BOOKS.cet6].sort() },
+  { id: 'ielts', name: 'IELTS 学术词汇', words: [...WORD_BOOKS.ielts].sort() },
+  { id: 'toefl', name: 'TOEFL 核心词汇', words: [...WORD_BOOKS.toefl].sort() },
+  { id: 'gre', name: 'GRE 高频词汇', words: [...WORD_BOOKS.gre].sort() },
+  { id: 'sat', name: 'SAT 常考词汇', words: [...WORD_BOOKS.sat].sort() },
 ];
 
 onMounted(async () => {
   settings.value = await window.vocaAPI.loadSettings();
   if (!settings.value.ttsVoice) settings.value.ttsVoice = '';
   loginItem.value = await window.vocaAPI.getLoginItem();
+  await refreshSyncStatus();
   loadVoices();
   speechSynthesis.onvoiceschanged = loadVoices;
 });
+
+function showNotice(text) {
+  notice.value = text;
+  setTimeout(() => { notice.value = ''; }, 2200);
+}
+
+async function refreshSyncStatus() {
+  syncStatus.value = await window.vocaAPI.getSyncStatus();
+}
+
+async function loadBackups() {
+  showBackups.value = !showBackups.value;
+  if (showBackups.value) backups.value = await window.vocaAPI.listBackups();
+}
+
+function formatBackupTime(time) {
+  return new Date(time).toLocaleString();
+}
+
+async function restoreBackup(backup) {
+  if (!confirm(`确认恢复到 ${formatBackupTime(backup.time)} 的备份？\n当前数据会先自动备份一份。`)) return;
+  const res = await window.vocaAPI.restoreBackup(backup.path);
+  if (res?.success) {
+    backups.value = await window.vocaAPI.listBackups();
+    showNotice('✓ 已恢复备份，回到生词本即可查看');
+  } else {
+    showNotice('恢复失败');
+  }
+}
 
 async function toggleLoginItem() {
   await window.vocaAPI.setLoginItem(loginItem.value);
@@ -287,7 +323,7 @@ async function importPreset(preset) {
   await window.vocaAPI.saveData(data);
   importingId.value = null;
   emit('preset-imported', bookId);
-  alert(`已导入「${preset.name}」(${preset.words.length} 词) 到书架`);
+  showNotice(`✓ 已导入「${preset.name}」`);
 }
 </script>
 
@@ -347,6 +383,41 @@ async function importPreset(preset) {
   cursor: pointer; font-family: inherit; transition: background .15s;
 }
 .s-btn-preview:hover { background: #4f52d3; }
+
+.backup-list {
+  border-top: 1px solid #f0f0f0;
+  background: #fafaff;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.backup-empty {
+  padding: 14px 16px;
+  font-size: 13px;
+  color: #999;
+}
+.backup-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.backup-item:last-child { border-bottom: none; }
+.backup-name { font-size: 13px; font-weight: 600; color: #333; }
+.backup-meta { font-size: 11px; color: #999; margin-top: 2px; }
+.s-btn-restore {
+  padding: 5px 12px;
+  background: #fff;
+  color: #6366f1;
+  border: 1.5px solid rgba(99,102,241,0.3);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.s-btn-restore:hover { background: rgba(99,102,241,0.08); }
 
 .s-btn-import {
   padding: 5px 14px; background: #6366f1; color: #fff;

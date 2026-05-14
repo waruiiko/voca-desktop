@@ -14,6 +14,7 @@ let tray = null;
 let pendingText = '';
 let overlayPinned = false;
 let recentLookups = [];
+let apiServerStatus = { running: false, port: 27149, error: '' };
 
 // ── 默认设置 ──────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
@@ -58,8 +59,51 @@ function loadData() {
 }
 
 function saveData(data) {
+  createDataBackup();
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf-8');
   try { fs.copyFileSync(DATA_FILE, DATA_FILE + '.bak'); } catch {}
+}
+
+function createDataBackup() {
+  try {
+    if (!DATA_FILE || !fs.existsSync(DATA_FILE)) return;
+    const dir = path.join(path.dirname(DATA_FILE), 'backups');
+    fs.mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    fs.copyFileSync(DATA_FILE, path.join(dir, `voca-words-${stamp}.json`));
+    const backups = fs.readdirSync(dir)
+      .filter(name => /^voca-words-.+\.json$/.test(name))
+      .map(name => ({ name, path: path.join(dir, name), mtime: fs.statSync(path.join(dir, name)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    for (const old of backups.slice(20)) fs.unlinkSync(old.path);
+  } catch {}
+}
+
+function listBackups() {
+  try {
+    const dir = path.join(path.dirname(DATA_FILE), 'backups');
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir)
+      .filter(name => /^voca-words-.+\.json$/.test(name))
+      .map(name => {
+        const file = path.join(dir, name);
+        const stat = fs.statSync(file);
+        return { name, path: file, time: stat.mtimeMs, size: stat.size };
+      })
+      .sort((a, b) => b.time - a.time);
+  } catch {
+    return [];
+  }
+}
+
+function restoreBackup(backupPath) {
+  const backups = listBackups();
+  const target = backups.find(b => b.path === backupPath);
+  if (!target || !fs.existsSync(target.path)) return { success: false, error: 'backup not found' };
+  createDataBackup();
+  fs.copyFileSync(target.path, DATA_FILE);
+  mainWindow?.webContents.send('words-updated');
+  return { success: true };
 }
 
 // ── 翻译 ──────────────────────────────────────────────────────────
@@ -468,6 +512,12 @@ ipcMain.handle('save-settings', (_, s) => { saveSettings(s); return true; });
 
 ipcMain.handle('load-data', () => loadData());
 ipcMain.handle('save-data', (_, data) => { saveData(data); return true; });
+ipcMain.handle('list-backups', () => listBackups());
+ipcMain.handle('restore-backup', (_, backupPath) => restoreBackup(backupPath));
+ipcMain.handle('get-sync-status', () => ({
+  ...apiServerStatus,
+  lastLookupCount: recentLookups.length,
+}));
 
 ipcMain.handle('load-words', () => {
   const data = loadData();
@@ -708,6 +758,51 @@ function startApiServer() {
   const http = require('http');
   const PORT = 27149;
 
+  function normalizeWord(raw) {
+    const word = String(raw?.word || '').trim();
+    if (!word) return null;
+    const key = String(raw.key || word).trim().toLowerCase();
+    return {
+      key,
+      value: {
+        ...raw,
+        word,
+        translation: raw.translation || '',
+        timestamp: raw.timestamp || Date.now(),
+        reviewCount: raw.reviewCount || 0,
+      },
+    };
+  }
+
+  function normalizeWords(rawWords) {
+    const words = {};
+    const entries = Array.isArray(rawWords)
+      ? rawWords.map(w => [w.key || w.word, w])
+      : Object.entries(rawWords || {});
+    for (const [key, raw] of entries) {
+      const normalized = normalizeWord({ ...raw, key });
+      if (normalized) words[normalized.key] = normalized.value;
+    }
+    return words;
+  }
+
+  function readJsonBody(req) {
+    return new Promise((resolve, reject) => {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try { resolve(body ? JSON.parse(body) : {}); }
+        catch (e) { reject(e); }
+      });
+      req.on('error', reject);
+    });
+  }
+
+  function sendJson(res, status, payload) {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(payload));
+  }
+
   const server = http.createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
@@ -715,53 +810,105 @@ function startApiServer() {
 
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-    const pathname = req.url.split('?')[0];
+    const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
+    const pathname = url.pathname;
 
     // GET /health
     if (req.method === 'GET' && pathname === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, version: '1.0.7' }));
+      sendJson(res, 200, {
+        ok: true,
+        version: '1.0.8',
+        endpoints: ['/health', '/words', '/books'],
+      });
+      return;
+    }
+
+    // GET /books — 返回完整词书结构，供网页端读取/比对
+    if (req.method === 'GET' && pathname === '/books') {
+      const data = loadData();
+      sendJson(res, 200, {
+        ok: true,
+        activeBookId: data.activeBookId,
+        saveBookId: data.saveBookId,
+        books: data.books || {},
+      });
+      return;
+    }
+
+    // POST /books — 接收网页端共享来的一个或多个词书
+    if (req.method === 'POST' && pathname === '/books') {
+      readJsonBody(req).then(payload => {
+        const data = loadData();
+        const incoming = Array.isArray(payload) ? payload : (payload.books ? Object.entries(payload.books).map(([id, b]) => ({ id, ...b })) : [payload]);
+        const imported = [];
+
+        for (const book of incoming) {
+          const name = String(book.name || book.title || '网页端词书').trim();
+          const baseId = String(book.id || book.bookId || `web_${Date.now()}`).replace(/[^\w-]/g, '_');
+          let id = baseId || `web_${Date.now()}`;
+          if (!data.books[id]) data.books[id] = { name, words: {} };
+          else data.books[id] = { ...data.books[id], name: data.books[id].name || name };
+
+          const words = normalizeWords(book.words || book.items || {});
+          data.books[id].words = { ...data.books[id].words, ...words };
+          imported.push({ id, name: data.books[id].name, count: Object.keys(words).length });
+        }
+
+        if (!data.saveBookId) data.saveBookId = data.activeBookId || imported[0]?.id || 'default';
+        if (!data.activeBookId && imported[0]?.id) data.activeBookId = imported[0].id;
+        saveData(data);
+        mainWindow?.webContents.send('words-updated');
+        sendJson(res, 200, { ok: true, imported });
+      }).catch(e => sendJson(res, 400, { ok: false, error: e.message }));
+      return;
+    }
+
+    // DELETE /books/:id — 删除指定词书（至少保留一本）
+    if (req.method === 'DELETE' && pathname.startsWith('/books/')) {
+      const id = decodeURIComponent(pathname.slice('/books/'.length));
+      const data = loadData();
+      if (data.books?.[id] && Object.keys(data.books).length > 1) {
+        delete data.books[id];
+        const firstId = Object.keys(data.books)[0];
+        if (data.activeBookId === id) data.activeBookId = firstId;
+        if (data.saveBookId === id) data.saveBookId = firstId;
+        data.flashPool = (data.flashPool || []).filter(w => w.bookId !== id);
+        saveData(data);
+        mainWindow?.webContents.send('words-updated');
+      }
+      sendJson(res, 200, { ok: true });
       return;
     }
 
     // GET /words
     if (req.method === 'GET' && pathname === '/words') {
       const data = loadData();
-      const bookId = data.saveBookId || data.activeBookId;
+      const bookId = url.searchParams.get('bookId') || data.saveBookId || data.activeBookId;
       const words = data.books[bookId]?.words || {};
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(words));
+      sendJson(res, 200, words);
       return;
     }
 
     // POST /words — 单个对象或数组，仅新增（不覆盖已有词条）
     if (req.method === 'POST' && pathname === '/words') {
-      let body = '';
-      req.on('data', chunk => { body += chunk; });
-      req.on('end', () => {
+      readJsonBody(req).then(payload => {
         try {
-          const payload = JSON.parse(body);
           const data = loadData();
-          const bookId = data.saveBookId || data.activeBookId;
+          const bookId = url.searchParams.get('bookId') || data.saveBookId || data.activeBookId;
           const words = data.books[bookId]?.words;
-          if (!words) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'book not found' })); return; }
+          if (!words) { sendJson(res, 404, { ok: false, error: 'book not found' }); return; }
           const items = Array.isArray(payload) ? payload : [payload];
           for (const w of items) {
-            const key = (w.word || '').trim().toLowerCase();
-            if (!key) continue;
-            if (!words[key]) {
-              words[key] = { word: w.word.trim(), translation: w.translation || '', timestamp: w.timestamp || Date.now(), reviewCount: w.reviewCount || 0 };
-            }
+            const normalized = normalizeWord(w);
+            if (normalized && !words[normalized.key]) words[normalized.key] = normalized.value;
           }
           saveData(data);
           mainWindow?.webContents.send('words-updated');
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true }));
+          sendJson(res, 200, { ok: true });
         } catch (e) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, error: e.message }));
+          sendJson(res, 400, { ok: false, error: e.message });
         }
-      });
+      }).catch(e => sendJson(res, 400, { ok: false, error: e.message }));
       return;
     }
 
@@ -769,25 +916,27 @@ function startApiServer() {
     if (req.method === 'DELETE' && pathname.startsWith('/words/')) {
       const key = decodeURIComponent(pathname.slice('/words/'.length)).toLowerCase();
       const data = loadData();
-      const bookId = data.saveBookId || data.activeBookId;
+      const bookId = url.searchParams.get('bookId') || data.saveBookId || data.activeBookId;
       if (data.books[bookId]?.words[key]) {
         delete data.books[bookId].words[key];
         saveData(data);
         mainWindow?.webContents.send('words-updated');
       }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true }));
+      sendJson(res, 200, { ok: true });
       return;
     }
 
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: false, error: 'not found' }));
+    sendJson(res, 404, { ok: false, error: 'not found' });
   });
 
   server.listen(PORT, '127.0.0.1', () => {
+    apiServerStatus = { running: true, port: PORT, error: '' };
     console.log(`[Voca] API server → http://127.0.0.1:${PORT}`);
   });
-  server.on('error', e => console.warn('[Voca] API server error:', e.message));
+  server.on('error', e => {
+    apiServerStatus = { running: false, port: PORT, error: e.message };
+    console.warn('[Voca] API server error:', e.message);
+  });
 }
 
 // ── App 生命周期 ──────────────────────────────────────────────────

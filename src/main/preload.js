@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('vocaAPI', {
   // 完整数据（多生词本）
   loadData:           ()           => ipcRenderer.invoke('load-data'),
   saveData:           (d)          => ipcRenderer.invoke('save-data', d),
+  listBackups:        ()           => ipcRenderer.invoke('list-backups'),
+  restoreBackup:      (path)       => ipcRenderer.invoke('restore-backup', path),
+  getSyncStatus:      ()           => ipcRenderer.invoke('get-sync-status'),
   // 当前生词本快捷读写（向后兼容）
   loadWords:          ()           => ipcRenderer.invoke('load-words'),
   saveWords:          (words)      => ipcRenderer.invoke('save-words', words),

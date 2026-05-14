@@ -134,6 +134,9 @@
     </div>
   </div>
 
+  <!-- Copy success toast -->
+  <div class="wd-toast" v-if="copyToast">✓ 已复制到词本</div>
+
   <!-- Copy modal -->
   <div class="wd-modal-overlay" v-if="showCopyModal" @click.self="showCopyModal = false">
     <div class="wd-modal">
@@ -167,6 +170,8 @@ const transValue = ref('');
 const transInputRef = ref(null);
 const showMoveModal = ref(false);
 const showCopyModal = ref(false);
+const copyToast = ref(false);
+let copyToastTimer = null;
 
 const bookList = computed(() => Object.entries(props.books || {}).map(([id, b]) => ({ id, name: b.name })));
 const targetBooks = computed(() => bookList.value.filter(b => b.id !== props.currentBookId));
@@ -253,6 +258,9 @@ function moveToBook(targetId) {
 function copyToBook(targetId) {
   emit('copy', { word: props.word, targetId });
   showCopyModal.value = false;
+  copyToast.value = true;
+  clearTimeout(copyToastTimer);
+  copyToastTimer = setTimeout(() => { copyToast.value = false; }, 2000);
 }
 
 function fmtDate(ts) {
@@ -423,4 +431,12 @@ function fmtDate(ts) {
   transition: all 0.12s; border: 1px solid transparent;
 }
 .wd-trans-chip:hover { background: rgba(99,102,241,0.15); color: #6366f1; border-color: rgba(99,102,241,0.2); }
+
+.wd-toast {
+  position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+  background: #1a1a1a; color: #fff; padding: 9px 20px;
+  border-radius: 20px; font-size: 13px; font-weight: 500;
+  z-index: 1000; pointer-events: none; white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
 </style>

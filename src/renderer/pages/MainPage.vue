@@ -11,18 +11,26 @@
         </button>
         <button class="nav-item" :class="{ active: tab === 'review' }" @click="tab = 'review'">
           <span class="nav-icon">🗂</span> 闪卡复习
-          <span class="due-badge" v-if="flashPool.length > 0">{{ flashPool.length }}</span>
+          <span class="due-badge" v-if="dueCount > 0">{{ dueCount }}</span>
         </button>
         <button class="nav-item" :class="{ active: tab === 'stats' }" @click="tab = 'stats'">
           <span class="nav-icon">📊</span> 统计
         </button>
-        <button class="nav-item" :class="{ active: tab === 'search' }" @click="tab = 'search'; globalSearch = ''; globalResults = []">
+        <button class="nav-item" :class="{ active: tab === 'search' }" @click="tab = 'search'; globalSearch = ''">
           <span class="nav-icon">🔍</span> 全局搜索
         </button>
         <button class="nav-item" :class="{ active: tab === 'settings' }" @click="tab = 'settings'">
           <span class="nav-icon">⚙️</span> 设置
         </button>
       </nav>
+
+      <!-- 快捷键提示（在生词本上方） -->
+      <div class="sidebar-shortcut">
+        <div class="shortcut-label">全局划词翻译</div>
+        <div class="shortcut-key">Ctrl+C+C</div>
+        <div class="shortcut-label" style="margin-top:8px">OCR 截图翻译</div>
+        <div class="shortcut-key">Ctrl+Shift+O</div>
+      </div>
 
       <!-- 生词本列表 -->
       <div class="books-section">
@@ -38,7 +46,6 @@
             :class="{ active: data.activeBookId === id && tab === 'words' }"
             @click="switchBook(id)"
           >
-            <!-- 收藏目标开关 -->
             <button
               class="book-pin"
               :class="{ pinned: data.saveBookId === id }"
@@ -56,25 +63,19 @@
           </div>
         </div>
       </div>
-
-      <div class="sidebar-shortcut">
-        <div class="shortcut-label">全局划词翻译</div>
-        <div class="shortcut-key">Ctrl+C+C</div>
-        <div class="shortcut-hint">选中文字后按住 Ctrl 快速双击 C</div>
-        <div class="shortcut-label" style="margin-top:10px">OCR 截图翻译</div>
-        <div class="shortcut-key">Ctrl+Shift+O</div>
-        <div class="shortcut-hint">框选屏幕任意区域识别文字</div>
-      </div>
     </aside>
 
     <!-- 主内容区 -->
-    <main class="main">
+    <main class="main" :class="{ 'main-fixed': tab === 'review' || tab === 'translate' }">
       <!-- 单词本 -->
       <div v-if="tab === 'words' && !detailWord" class="words-page">
         <div class="page-header">
           <h1>{{ currentBook?.name || '单词本' }}</h1>
           <span class="word-count">{{ wordList.length }} 个单词</span>
-          <input class="search-input" v-model="search" placeholder="搜索单词…" />
+          <div class="search-wrap">
+            <input class="search-input" v-model="search" placeholder="搜索单词…" />
+            <button class="search-clear" v-if="search" @click="search = ''" title="清除">✕</button>
+          </div>
           <button class="btn-import" @click="importWords" title="导入">↑ 导入</button>
           <button class="btn-export" @click="exportBook" title="导出">↓ 导出</button>
         </div>
@@ -129,14 +130,10 @@
       </div>
 
       <!-- 闪卡复习 -->
-      <div v-if="tab === 'review'" class="review-page">
-        <FlashCard :words="flashPool" @update="onPoolCardUpdate" />
-      </div>
+      <FlashCard v-if="tab === 'review'" :words="flashPool" @update="onPoolCardUpdate" style="flex:1;overflow:hidden;" />
 
       <!-- 翻译工作台 -->
-      <div v-if="tab === 'translate'" class="translate-page">
-        <TranslatePage ref="translateRef" />
-      </div>
+      <TranslatePage v-if="tab === 'translate'" ref="translateRef" style="flex:1;overflow:hidden;" />
 
       <!-- 统计 -->
       <div v-if="tab === 'stats'" class="stats-wrap">
@@ -147,16 +144,18 @@
       <div v-if="tab === 'search'" class="search-page">
         <div class="page-header">
           <h1>全局搜索</h1>
-          <input
-            class="search-input search-input-global"
-            v-model="globalSearch"
-            placeholder="搜索所有生词本…"
-            @input="doGlobalSearch"
-            autofocus
-          />
+          <div class="search-wrap">
+            <input
+              class="search-input search-input-global"
+              v-model="globalSearch"
+              placeholder="搜索所有生词本…"
+              @input="doGlobalSearch"
+              autofocus
+            />
+            <button class="search-clear" v-if="globalSearch" @click="globalSearch = ''; doGlobalSearch()" title="清除">✕</button>
+          </div>
         </div>
-        <div class="search-hint" v-if="!globalSearch.trim()">在所有生词本中搜索单词或翻译</div>
-        <div class="search-empty" v-else-if="globalResults.length === 0">没有找到匹配的单词</div>
+        <div class="search-empty" v-if="globalResults.length === 0">没有找到匹配的单词</div>
         <div class="word-list" v-else>
           <div class="word-card" v-for="r in globalResults" :key="r.bookId + ':' + r.key" @click="openGlobalResult(r)">
             <div class="word-card-left">
@@ -196,6 +195,8 @@
       </div>
     </div>
   </div>
+
+  <div class="app-toast" v-if="toastMessage">{{ toastMessage }}</div>
 </template>
 
 <script setup>
@@ -218,6 +219,8 @@ const data = ref({ activeBookId: 'default', saveBookId: 'default', flashPool: []
 const settings = ref({ dailyGoal: 10 });
 const globalSearch = ref('');
 const globalResults = ref([]);
+const toastMessage = ref('');
+let toastTimer = null;
 
 const editingKey = ref(null);
 const editValue = ref('');
@@ -234,7 +237,9 @@ const newBookInputRef = ref(null);
 const currentBook = computed(() => data.value.books[data.value.activeBookId]);
 
 const wordList = computed(() =>
-  Object.entries(currentBook.value?.words || {}).map(([key, val]) => ({ key, ...val }))
+  Object.entries(currentBook.value?.words || {})
+    .map(([key, val]) => ({ key, ...val }))
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
 );
 
 const filteredWords = computed(() => {
@@ -257,22 +262,39 @@ async function reloadData() {
   data.value = await window.vocaAPI.loadData();
 }
 
+async function cleanupPool() {
+  const pool = (data.value.flashPool || []).filter(p => {
+    const book = data.value.books[p.bookId];
+    return book && !!book.words[p.key];
+  });
+  if (pool.length !== (data.value.flashPool || []).length) {
+    const updated = { ...data.value, flashPool: pool };
+    data.value = updated;
+    await window.vocaAPI.saveData(toPlain(updated));
+  }
+}
+
 async function reloadSettings() {
   settings.value = await window.vocaAPI.loadSettings();
 }
 
 function doGlobalSearch() {
   const q = globalSearch.value.trim().toLowerCase();
-  if (!q) { globalResults.value = []; return; }
   const results = [];
   for (const [bookId, book] of Object.entries(data.value.books || {})) {
     for (const [key, w] of Object.entries(book.words || {})) {
-      if (w.word?.toLowerCase().includes(q) || w.translation?.toLowerCase().includes(q)) {
+      if (!q || w.word?.toLowerCase().includes(q) || w.translation?.toLowerCase().includes(q)) {
         results.push({ key, bookId, bookName: book.name, ...w });
       }
     }
   }
-  globalResults.value = results;
+  globalResults.value = results.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+}
+
+function showToast(message) {
+  toastMessage.value = message;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastMessage.value = ''; }, 2200);
 }
 
 function openGlobalResult(r) {
@@ -283,10 +305,12 @@ function openGlobalResult(r) {
 
 watch(tab, (newTab) => {
   if (newTab === 'stats') reloadSettings();
+  if (newTab === 'search') doGlobalSearch();
 });
 
 onMounted(async () => {
   await reloadData();
+  await cleanupPool();
   settings.value = await window.vocaAPI.loadSettings();
   window.vocaAPI.onWordsUpdated(reloadData);
   window.addEventListener('focus', reloadData);
@@ -329,6 +353,7 @@ async function unsaveDetailWord(w) {
   data.value = updated;
   await window.vocaAPI.saveData(toPlain(updated));
   window.vocaAPI.notifyWordsUpdated();
+  showToast('已取消收藏');
 }
 
 async function saveDetailWord(w) {
@@ -337,6 +362,7 @@ async function saveDetailWord(w) {
   const book = data.value.books[saveBookId];
   if (!book || book.words[key]) return;
   const newWord = { word: w.word.trim(), key, translation: w.translation || '', timestamp: Date.now(), reviewCount: 0 };
+  
   const updated = {
     ...data.value,
     books: { ...data.value.books, [saveBookId]: { ...book, words: { ...book.words, [key]: newWord } } },
@@ -345,6 +371,7 @@ async function saveDetailWord(w) {
   await window.vocaAPI.saveData(toPlain(updated));
   window.vocaAPI.notifyWordsUpdated();
   detailWord.value = { ...newWord };
+  showToast('已收藏到生词本');
 }
 
 function lookupWord(word) {
@@ -364,7 +391,9 @@ function isInPool(w) {
 }
 
 const poolCountForBook = computed(() =>
-  (data.value.flashPool || []).filter(p => p.bookId === data.value.activeBookId).length
+  (data.value.flashPool || []).filter(p =>
+    p.bookId === data.value.activeBookId && !!currentBook.value?.words[p.key]
+  ).length
 );
 
 function makePoolEntry(w) {
@@ -435,7 +464,7 @@ function onWordMove({ word, targetId }) {
   const key = word.key;
   const plain = { ...word };
   delete plain.key;
-  data.value.books[targetId].words[key] = plain;
+  data.value.books[targetId].words[key] = { ...plain, timestamp: Date.now() };
   delete data.value.books[srcId].words[key];
   const pe = data.value.flashPool.find(p => p.key === key && p.bookId === srcId);
   if (pe) pe.bookId = targetId;
@@ -448,7 +477,7 @@ function onWordCopy({ word, targetId }) {
   const key = word.key;
   const plain = { ...word };
   delete plain.key;
-  data.value.books[targetId].words[key] = { ...plain };
+  data.value.books[targetId].words[key] = { ...plain, timestamp: Date.now() };
   window.vocaAPI.saveData(toPlain(data.value));
 }
 
@@ -486,6 +515,7 @@ async function confirmNewBook() {
   data.value = updated;
   tab.value = 'words';
   await window.vocaAPI.saveData(toPlain(updated));
+  showToast('已创建生词本');
 }
 
 async function deleteBook(id) {
@@ -499,6 +529,7 @@ async function deleteBook(id) {
   data.value = updated;
   detailWord.value = null;
   await window.vocaAPI.saveData(toPlain(updated));
+  showToast('已删除生词本');
 }
 
 // ── 单词操作 ─────────────────────────────────────────────────────
@@ -517,6 +548,8 @@ async function deleteWord(key) {
   };
   data.value = updated;
   await window.vocaAPI.saveData(toPlain(updated));
+  window.vocaAPI.notifyWordsUpdated();
+  showToast('已删除单词');
 }
 
 async function onCardUpdate(updatedWord) {
@@ -541,7 +574,7 @@ async function importWords() {
   const res = await window.vocaAPI.importWords(data.value.activeBookId);
   if (res?.success) {
     await reloadData();
-    alert(`已导入 ${res.count} 个单词`);
+    showToast(`已导入 ${res.count} 个单词`);
   }
 }
 
@@ -704,20 +737,21 @@ function memClass(w) {
 .book-del:hover { color: #ff9a9a !important; }
 
 .sidebar-shortcut {
-  margin-top: auto; flex-shrink: 0;
+  flex-shrink: 0;
   background: rgba(255,255,255,0.05);
-  border-radius: 10px; padding: 12px;
+  border-radius: 10px; padding: 10px 12px;
+  margin-bottom: 4px;
 }
-.shortcut-label { font-size: 11px; color: rgba(255,255,255,0.4); margin-bottom: 4px; }
+.shortcut-label { font-size: 11px; color: rgba(255,255,255,0.4); margin-bottom: 3px; }
 .shortcut-key {
-  font-size: 13px; font-weight: 700; color: #a78bfa;
+  font-size: 12px; font-weight: 700; color: #a78bfa;
   background: rgba(167,139,250,0.15); border-radius: 6px;
-  padding: 4px 8px; display: inline-block; margin-bottom: 6px; font-family: monospace;
+  padding: 3px 8px; display: inline-block; margin-bottom: 2px; font-family: monospace;
 }
-.shortcut-hint { font-size: 10px; color: rgba(255,255,255,0.3); line-height: 1.4; }
 
 /* 主区域 */
 .main { flex: 1; overflow-y: auto; background: #f5f5f7; }
+.main-fixed { overflow: hidden; display: flex; flex-direction: column; }
 
 /* 单词本 */
 .words-page { padding: 28px 32px; }
@@ -726,13 +760,23 @@ function memClass(w) {
 }
 .page-header h1 { font-size: 22px; font-weight: 700; }
 .word-count { font-size: 13px; color: #999; }
+.search-wrap { position: relative; margin-left: auto; display: flex; align-items: center; }
 .search-input {
-  margin-left: auto; padding: 7px 14px;
+  padding: 7px 32px 7px 14px;
   border: 1.5px solid #e0e0e0; border-radius: 20px;
   font-size: 13px; outline: none; width: 180px;
   transition: border-color 0.15s; font-family: inherit;
 }
 .search-input:focus { border-color: #6366f1; }
+.search-input-global { width: 280px; margin-left: 16px; }
+.search-clear {
+  position: absolute; right: 10px;
+  background: none; border: none; cursor: pointer;
+  font-size: 11px; color: #bbb; padding: 2px 4px;
+  border-radius: 50%; line-height: 1;
+  transition: color 0.12s, background 0.12s;
+}
+.search-clear:hover { color: #888; background: #f0f0f5; }
 .btn-import, .btn-export {
   padding: 7px 12px; border: 1.5px solid #e0e0e0; border-radius: 8px;
   background: #fff; font-size: 12px; font-weight: 600; cursor: pointer;
@@ -809,19 +853,12 @@ function memClass(w) {
 }
 .empty-icon { font-size: 48px; }
 
-/* 复习页 */
-.review-page { height: 100vh; display: flex; flex-direction: column; }
-
-/* 翻译页 */
-.translate-page { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
-
 /* 设置页包装 */
 .settings-wrap { height: 100%; overflow-y: auto; }
 .stats-wrap { height: 100%; overflow-y: auto; }
 
 /* 全局搜索 */
 .search-page { padding: 28px 32px; height: 100%; box-sizing: border-box; overflow-y: auto; }
-.search-input-global { width: 280px; margin-left: 16px; }
 .search-hint { font-size: 14px; color: #bbb; margin-top: 40px; text-align: center; }
 .search-empty { font-size: 14px; color: #bbb; margin-top: 40px; text-align: center; }
 .gs-book-tag {
@@ -859,4 +896,19 @@ function memClass(w) {
 }
 .modal-btn-confirm:hover { background: #4f52d3; }
 .modal-btn-confirm:disabled { background: #aaa; cursor: not-allowed; }
+
+.app-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 200;
+  padding: 10px 16px;
+  background: rgba(30,30,46,0.94);
+  color: #fff;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.18);
+  pointer-events: none;
+}
 </style>

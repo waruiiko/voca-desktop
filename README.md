@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.0.7-purple)
+![Version](https://img.shields.io/badge/version-1.0.8-purple)
 
 ## 下载
 
@@ -18,7 +18,7 @@
 - **OCR 截图翻译** — Ctrl+Shift+O 框选屏幕任意区域，自动识别文字并翻译
 - **一键收藏** — 在悬浮窗点击 ⭐，单词连同翻译存入生词本
 - **闪卡复习** — 基于 SM-2 算法智能安排复习间隔，有到期提醒
-- **多生词本** — 按主题分类管理，支持导入/导出，内置 IELTS / TOEFL / GRE 预设词表
+- **多生词本** — 按主题分类管理，支持导入/导出，内置 CEFR / CET / IELTS / TOEFL / GRE / SAT 预设词表
 - **学习统计** — 打卡连续天数、掌握程度分布、每日目标进度
 - **全局搜索** — 跨所有生词本搜索单词或翻译
 - **Anki 导出** — 导出为 TSV 格式，可直接导入 Anki
@@ -40,6 +40,13 @@ npm run dist
 **技术栈：** Electron · Vue 3 · Vite
 
 ## 更新日志
+
+### v1.0.8
+- 本地 HTTP API 新增词书级同步接口，支持 Voca 网页端把完整词书共享到桌面端
+  - `GET /books` 读取桌面端完整词书结构
+  - `POST /books` 接收网页端共享来的一个或多个词书
+  - `DELETE /books/:id` 删除指定词书（至少保留一本）
+  - `/words` 支持 `?bookId=` 参数，可对指定词书同步单词
 
 ### v1.0.7
 - "译"图标添加圆角，视觉更美观
