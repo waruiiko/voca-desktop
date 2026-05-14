@@ -8,6 +8,7 @@
     <div class="s-tabs">
       <button class="s-tab" :class="{ active: stab === 'general' }" @click="stab = 'general'">基本设置</button>
       <button class="s-tab" :class="{ active: stab === 'presets' }" @click="stab = 'presets'">预设词表</button>
+      <button class="s-tab" :class="{ active: stab === 'maintenance' }" @click="openMaintenance">维护</button>
     </div>
 
     <!-- 基本设置 -->
@@ -81,8 +82,22 @@
               <span class="s-desc">
                 {{ syncStatus.running ? `本地同步服务运行中：127.0.0.1:${syncStatus.port}` : `同步服务未启动${syncStatus.error ? '：' + syncStatus.error : ''}` }}
               </span>
+              <span class="s-desc" v-if="syncStatus.lastSyncAt">
+                最近同步：{{ formatBackupTime(syncStatus.lastSyncAt) }}，{{ syncStatus.lastSyncSummary }}
+              </span>
             </div>
             <button class="s-btn-preview" @click="refreshSyncStatus">刷新</button>
+          </div>
+          <div class="s-row">
+            <div class="s-row-body">
+              <span class="s-label">词书冲突处理</span>
+              <span class="s-desc">网页端与桌面端存在同名词条时如何处理</span>
+            </div>
+            <select class="s-select s-select-wide" v-model="settings.syncConflictStrategy">
+              <option value="merge">合并：保留桌面端，补充空翻译</option>
+              <option value="overwrite">网页端覆盖桌面端</option>
+              <option value="skip">跳过已有词条</option>
+            </select>
           </div>
           <div class="s-row">
             <div class="s-row-body">
@@ -174,6 +189,47 @@
         </div>
       </div>
     </template>
+
+    <!-- 维护 -->
+    <template v-if="stab === 'maintenance'">
+      <section class="s-section">
+        <h2 class="s-title">版本更新</h2>
+        <div class="s-card">
+          <div class="s-row">
+            <div class="s-row-body">
+              <span class="s-label">检查 GitHub Release</span>
+              <span class="s-desc">{{ updateText }}</span>
+            </div>
+            <button class="s-btn-preview" @click="checkUpdates" :disabled="checkingUpdate">
+              {{ checkingUpdate ? '检查中…' : '检查更新' }}
+            </button>
+            <button class="s-btn-restore" v-if="updateInfo?.url" @click="openUpdatePage">打开</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="s-section">
+        <h2 class="s-title">数据体检</h2>
+        <div class="s-card">
+          <div class="health-grid" v-if="health">
+            <div class="health-item"><b>{{ health.bookCount }}</b><span>词书</span></div>
+            <div class="health-item"><b>{{ health.totalWords }}</b><span>单词</span></div>
+            <div class="health-item"><b>{{ health.emptyTranslations }}</b><span>空翻译</span></div>
+            <div class="health-item"><b>{{ health.duplicateAcrossBooks }}</b><span>跨词书重复</span></div>
+            <div class="health-item"><b>{{ health.flashOrphans }}</b><span>闪卡孤儿项</span></div>
+            <div class="health-item"><b>{{ health.backupCount }}</b><span>备份</span></div>
+          </div>
+          <div class="s-row">
+            <div class="s-row-body">
+              <span class="s-label">自动修复</span>
+              <span class="s-desc">清理无效单词、修复缺失 key、移除闪卡池孤儿项</span>
+            </div>
+            <button class="s-btn-preview" @click="refreshHealth">重新体检</button>
+            <button class="s-btn-restore" @click="repairHealth">修复</button>
+          </div>
+        </div>
+      </section>
+    </template>
   </div>
 </template>
 
@@ -201,6 +257,9 @@ const loginItem = ref(false);
 const syncStatus = ref({ running: false, port: 27149, error: '' });
 const backups = ref([]);
 const showBackups = ref(false);
+const health = ref(null);
+const updateInfo = ref(null);
+const checkingUpdate = ref(false);
 
 // TTS voices
 const allVoices = ref([]);
@@ -272,6 +331,13 @@ onMounted(async () => {
   speechSynthesis.onvoiceschanged = loadVoices;
 });
 
+const updateText = computed(() => {
+  if (!updateInfo.value) return '尚未检查更新';
+  if (!updateInfo.value.success) return `检查失败：${updateInfo.value.error}`;
+  if (updateInfo.value.hasUpdate) return `发现新版本 ${updateInfo.value.latestVersion}，当前版本 ${updateInfo.value.currentVersion}`;
+  return `已是最新版本：${updateInfo.value.currentVersion}`;
+});
+
 function showNotice(text) {
   notice.value = text;
   setTimeout(() => { notice.value = ''; }, 2200);
@@ -279,6 +345,35 @@ function showNotice(text) {
 
 async function refreshSyncStatus() {
   syncStatus.value = await window.vocaAPI.getSyncStatus();
+}
+
+async function openMaintenance() {
+  stab.value = 'maintenance';
+  await Promise.all([refreshSyncStatus(), refreshHealth()]);
+}
+
+async function refreshHealth() {
+  health.value = await window.vocaAPI.inspectData();
+}
+
+async function repairHealth() {
+  const res = await window.vocaAPI.repairData();
+  if (res?.success) {
+    health.value = res.summary;
+    showNotice(`✓ 已修复：移除 ${res.removedFlashOrphans} 个闪卡孤儿项`);
+  } else {
+    showNotice('修复失败');
+  }
+}
+
+async function checkUpdates() {
+  checkingUpdate.value = true;
+  updateInfo.value = await window.vocaAPI.checkForUpdates();
+  checkingUpdate.value = false;
+}
+
+function openUpdatePage() {
+  window.vocaAPI.openExternal(updateInfo.value.url);
 }
 
 async function loadBackups() {
@@ -418,6 +513,29 @@ async function importPreset(preset) {
   font-family: inherit;
 }
 .s-btn-restore:hover { background: rgba(99,102,241,0.08); }
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: #f0f0f0;
+}
+.health-item {
+  background: #fff;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.health-item b {
+  font-size: 22px;
+  color: #1a1a1a;
+  line-height: 1;
+}
+.health-item span {
+  font-size: 12px;
+  color: #999;
+}
 
 .s-btn-import {
   padding: 5px 14px; background: #6366f1; color: #fff;

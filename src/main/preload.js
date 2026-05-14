@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('vocaAPI', {
   // 设置
+  getAppVersion:      ()           => ipcRenderer.invoke('get-app-version'),
   loadSettings:       ()           => ipcRenderer.invoke('load-settings'),
   saveSettings:       (s)          => ipcRenderer.invoke('save-settings', s),
   // 完整数据（多生词本）
@@ -10,6 +11,10 @@ contextBridge.exposeInMainWorld('vocaAPI', {
   listBackups:        ()           => ipcRenderer.invoke('list-backups'),
   restoreBackup:      (path)       => ipcRenderer.invoke('restore-backup', path),
   getSyncStatus:      ()           => ipcRenderer.invoke('get-sync-status'),
+  inspectData:        ()           => ipcRenderer.invoke('inspect-data'),
+  repairData:         ()           => ipcRenderer.invoke('repair-data'),
+  checkForUpdates:    ()           => ipcRenderer.invoke('check-for-updates'),
+  openExternal:       (url)        => ipcRenderer.invoke('open-external', url),
   // 当前生词本快捷读写（向后兼容）
   loadWords:          ()           => ipcRenderer.invoke('load-words'),
   saveWords:          (words)      => ipcRenderer.invoke('save-words', words),

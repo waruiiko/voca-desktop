@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, clipboard, ipcMain, Tray, Menu, nativeImage, screen, dialog, Notification } = require('electron');
+const { app, BrowserWindow, globalShortcut, clipboard, ipcMain, Tray, Menu, nativeImage, screen, dialog, Notification, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -14,7 +14,7 @@ let tray = null;
 let pendingText = '';
 let overlayPinned = false;
 let recentLookups = [];
-let apiServerStatus = { running: false, port: 27149, error: '' };
+let apiServerStatus = { running: false, port: 27149, error: '', lastSyncAt: 0, lastSyncSummary: '' };
 
 // ── 默认设置 ──────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
@@ -24,6 +24,7 @@ const DEFAULT_SETTINGS = {
   targetLang: 'zh-CN',
   ttsVoice: '',
   dailyGoal: 10,
+  syncConflictStrategy: 'merge',
 };
 
 function loadSettings() {
@@ -104,6 +105,87 @@ function restoreBackup(backupPath) {
   fs.copyFileSync(target.path, DATA_FILE);
   mainWindow?.webContents.send('words-updated');
   return { success: true };
+}
+
+function inspectData() {
+  const data = loadData();
+  const books = data.books || {};
+  const seen = new Map();
+  let totalWords = 0;
+  let emptyTranslations = 0;
+  let invalidWords = 0;
+  let duplicateAcrossBooks = 0;
+
+  for (const [bookId, book] of Object.entries(books)) {
+    for (const [key, w] of Object.entries(book.words || {})) {
+      totalWords += 1;
+      const normalized = String(w.word || key || '').trim().toLowerCase();
+      if (!normalized) invalidWords += 1;
+      if (!w.translation) emptyTranslations += 1;
+      const owner = seen.get(normalized);
+      if (owner && owner !== bookId) duplicateAcrossBooks += 1;
+      else seen.set(normalized, bookId);
+    }
+  }
+
+  const flashPool = data.flashPool || [];
+  const flashOrphans = flashPool.filter(p => !books[p.bookId]?.words?.[p.key]).length;
+  const backups = listBackups();
+
+  return {
+    bookCount: Object.keys(books).length,
+    totalWords,
+    emptyTranslations,
+    duplicateAcrossBooks,
+    invalidWords,
+    flashPoolCount: flashPool.length,
+    flashOrphans,
+    backupCount: backups.length,
+    latestBackupTime: backups[0]?.time || 0,
+  };
+}
+
+function repairData() {
+  const data = loadData();
+  const books = data.books || {};
+  let removedInvalidWords = 0;
+  let fixedMissingKeys = 0;
+
+  for (const book of Object.values(books)) {
+    const nextWords = {};
+    for (const [key, w] of Object.entries(book.words || {})) {
+      const word = String(w.word || key || '').trim();
+      if (!word) {
+        removedInvalidWords += 1;
+        continue;
+      }
+      const normalizedKey = String(w.key || key || word).trim().toLowerCase();
+      if (!w.key) fixedMissingKeys += 1;
+      nextWords[normalizedKey] = { ...w, key: normalizedKey, word };
+    }
+    book.words = nextWords;
+  }
+
+  const beforePool = (data.flashPool || []).length;
+  data.flashPool = (data.flashPool || []).filter(p => books[p.bookId]?.words?.[p.key]);
+  const removedFlashOrphans = beforePool - data.flashPool.length;
+
+  if (!books[data.activeBookId]) data.activeBookId = Object.keys(books)[0] || 'default';
+  if (!books[data.saveBookId]) data.saveBookId = data.activeBookId;
+
+  saveData(data);
+  mainWindow?.webContents.send('words-updated');
+  return { success: true, removedInvalidWords, fixedMissingKeys, removedFlashOrphans, summary: inspectData() };
+}
+
+function compareVersions(a, b) {
+  const pa = String(a || '').replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
+  const pb = String(b || '').replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
+    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
+  }
+  return 0;
 }
 
 // ── 翻译 ──────────────────────────────────────────────────────────
@@ -509,6 +591,7 @@ function createTray() {
 // ── IPC ───────────────────────────────────────────────────────────
 ipcMain.handle('load-settings', () => loadSettings());
 ipcMain.handle('save-settings', (_, s) => { saveSettings(s); return true; });
+ipcMain.handle('get-app-version', () => app.getVersion());
 
 ipcMain.handle('load-data', () => loadData());
 ipcMain.handle('save-data', (_, data) => { saveData(data); return true; });
@@ -518,6 +601,32 @@ ipcMain.handle('get-sync-status', () => ({
   ...apiServerStatus,
   lastLookupCount: recentLookups.length,
 }));
+ipcMain.handle('inspect-data', () => inspectData());
+ipcMain.handle('repair-data', () => repairData());
+ipcMain.handle('open-external', (_, url) => {
+  if (typeof url === 'string' && /^https?:\/\//.test(url)) shell.openExternal(url);
+  return true;
+});
+ipcMain.handle('check-for-updates', async () => {
+  try {
+    const res = await fetch('https://api.github.com/repos/waruiiko/voca-desktop/releases/latest', {
+      headers: { 'User-Agent': 'Voca Desktop' },
+    });
+    if (!res.ok) throw new Error(`GitHub HTTP ${res.status}`);
+    const latest = await res.json();
+    const latestVersion = String(latest.tag_name || latest.name || '').replace(/^v/i, '');
+    const currentVersion = app.getVersion();
+    return {
+      success: true,
+      currentVersion,
+      latestVersion,
+      hasUpdate: compareVersions(latestVersion, currentVersion) > 0,
+      url: latest.html_url || 'https://github.com/waruiiko/voca-desktop/releases/latest',
+    };
+  } catch (e) {
+    return { success: false, error: e.message, currentVersion: app.getVersion() };
+  }
+});
 
 ipcMain.handle('load-words', () => {
   const data = loadData();
@@ -803,6 +912,31 @@ function startApiServer() {
     res.end(JSON.stringify(payload));
   }
 
+  function mergeBookWords(existing, incoming, strategy) {
+    let added = 0;
+    let updated = 0;
+    let skipped = 0;
+    for (const [key, word] of Object.entries(incoming)) {
+      if (!existing[key]) {
+        existing[key] = word;
+        added += 1;
+      } else if (strategy === 'overwrite') {
+        existing[key] = { ...existing[key], ...word, timestamp: existing[key].timestamp || word.timestamp || Date.now() };
+        updated += 1;
+      } else {
+        skipped += 1;
+        if (strategy === 'merge') {
+          existing[key] = {
+            ...existing[key],
+            translation: existing[key].translation || word.translation || '',
+            timestamp: existing[key].timestamp || word.timestamp || Date.now(),
+          };
+        }
+      }
+    }
+    return { added, updated, skipped };
+  }
+
   const server = http.createServer((req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
@@ -817,8 +951,9 @@ function startApiServer() {
     if (req.method === 'GET' && pathname === '/health') {
       sendJson(res, 200, {
         ok: true,
-        version: '1.0.8',
+        version: '1.0.9',
         endpoints: ['/health', '/words', '/books'],
+        sync: apiServerStatus,
       });
       return;
     }
@@ -839,6 +974,8 @@ function startApiServer() {
     if (req.method === 'POST' && pathname === '/books') {
       readJsonBody(req).then(payload => {
         const data = loadData();
+        const settings = loadSettings();
+        const strategy = url.searchParams.get('strategy') || payload.strategy || settings.syncConflictStrategy || 'merge';
         const incoming = Array.isArray(payload) ? payload : (payload.books ? Object.entries(payload.books).map(([id, b]) => ({ id, ...b })) : [payload]);
         const imported = [];
 
@@ -850,15 +987,17 @@ function startApiServer() {
           else data.books[id] = { ...data.books[id], name: data.books[id].name || name };
 
           const words = normalizeWords(book.words || book.items || {});
-          data.books[id].words = { ...data.books[id].words, ...words };
-          imported.push({ id, name: data.books[id].name, count: Object.keys(words).length });
+          const result = mergeBookWords(data.books[id].words, words, strategy);
+          imported.push({ id, name: data.books[id].name, count: Object.keys(words).length, ...result });
         }
 
         if (!data.saveBookId) data.saveBookId = data.activeBookId || imported[0]?.id || 'default';
         if (!data.activeBookId && imported[0]?.id) data.activeBookId = imported[0].id;
         saveData(data);
+        apiServerStatus.lastSyncAt = Date.now();
+        apiServerStatus.lastSyncSummary = `网页端同步 ${imported.length} 本词书，策略：${strategy}`;
         mainWindow?.webContents.send('words-updated');
-        sendJson(res, 200, { ok: true, imported });
+        sendJson(res, 200, { ok: true, strategy, imported });
       }).catch(e => sendJson(res, 400, { ok: false, error: e.message }));
       return;
     }
@@ -894,17 +1033,23 @@ function startApiServer() {
       readJsonBody(req).then(payload => {
         try {
           const data = loadData();
+          const settings = loadSettings();
+          const strategy = url.searchParams.get('strategy') || payload.strategy || settings.syncConflictStrategy || 'merge';
           const bookId = url.searchParams.get('bookId') || data.saveBookId || data.activeBookId;
           const words = data.books[bookId]?.words;
           if (!words) { sendJson(res, 404, { ok: false, error: 'book not found' }); return; }
           const items = Array.isArray(payload) ? payload : [payload];
+          const incoming = {};
           for (const w of items) {
             const normalized = normalizeWord(w);
-            if (normalized && !words[normalized.key]) words[normalized.key] = normalized.value;
+            if (normalized) incoming[normalized.key] = normalized.value;
           }
+          const result = mergeBookWords(words, incoming, strategy);
           saveData(data);
+          apiServerStatus.lastSyncAt = Date.now();
+          apiServerStatus.lastSyncSummary = `网页端同步 ${Object.keys(incoming).length} 个词，策略：${strategy}`;
           mainWindow?.webContents.send('words-updated');
-          sendJson(res, 200, { ok: true });
+          sendJson(res, 200, { ok: true, strategy, ...result });
         } catch (e) {
           sendJson(res, 400, { ok: false, error: e.message });
         }

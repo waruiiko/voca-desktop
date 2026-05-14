@@ -4,7 +4,7 @@
 
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-1.0.8-purple)
+![Version](https://img.shields.io/badge/version-1.0.9-purple)
 
 ## 下载
 
@@ -35,11 +35,21 @@ npm run dev
 
 # 打包
 npm run dist
+
+# 发布打包到独立目录，例如 C:\tmp\voca-release-1.0.9
+npm run release -- 1.0.9
 ```
 
 **技术栈：** Electron · Vue 3 · Vite
 
 ## 更新日志
+
+### v1.0.9
+- 新增发布脚本 `npm run release -- -Version x.y.z`，自动更新版本、构建并输出到独立目录
+- 设置页新增“维护”页：支持检查 GitHub 新版本、数据体检与一键修复
+- 同步状态显示最近网页端同步时间与摘要
+- 网页端词书同步新增冲突策略：合并、覆盖、跳过
+- 左上角新增当前版本号显示
 
 ### v1.0.8
 - 本地 HTTP API 新增词书级同步接口，支持 Voca 网页端把完整词书共享到桌面端

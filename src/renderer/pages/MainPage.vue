@@ -2,7 +2,10 @@
   <div class="app">
     <!-- 侧边栏 -->
     <aside class="sidebar">
-      <div class="sidebar-logo">📖 Voca</div>
+      <div class="sidebar-logo">
+        <span>📖 Voca</span>
+        <span class="sidebar-version" v-if="appVersion">v{{ appVersion }}</span>
+      </div>
 
       <!-- 主导航 -->
       <nav class="sidebar-nav">
@@ -217,6 +220,7 @@ const isDetailWordSaved = computed(() => {
 const search = ref('');
 const data = ref({ activeBookId: 'default', saveBookId: 'default', flashPool: [], books: { default: { name: '默认生词本', words: {} } } });
 const settings = ref({ dailyGoal: 10 });
+const appVersion = ref('');
 const globalSearch = ref('');
 const globalResults = ref([]);
 const toastMessage = ref('');
@@ -311,6 +315,7 @@ watch(tab, (newTab) => {
 onMounted(async () => {
   await reloadData();
   await cleanupPool();
+  appVersion.value = await window.vocaAPI.getAppVersion();
   settings.value = await window.vocaAPI.loadSettings();
   window.vocaAPI.onWordsUpdated(reloadData);
   window.addEventListener('focus', reloadData);
@@ -664,9 +669,19 @@ function memClass(w) {
   overflow-y: auto;
 }
 .sidebar-logo {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
   font-size: 18px; font-weight: 700; color: #fff;
   padding: 0 8px 16px; border-bottom: 1px solid rgba(255,255,255,0.08);
   margin-bottom: 4px; flex-shrink: 0;
+}
+.sidebar-version {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.38);
+  background: rgba(255,255,255,0.07);
+  border-radius: 999px;
+  padding: 2px 7px;
+  white-space: nowrap;
 }
 .sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
 .nav-item {

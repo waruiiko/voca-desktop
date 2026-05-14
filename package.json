@@ -1,6 +1,6 @@
 {
   "name": "voca-desktop",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "轻量桌面单词学习工具，支持全局划词翻译、OCR 截图识别、闪卡复习与生词本管理。",
   "main": "src/main/index.js",
   "author": "waruiiko",
@@ -9,6 +9,7 @@
     "dev": "node scripts/dev.js",
     "build": "vite build",
     "dist": "vite build && electron-builder",
+    "release": "powershell -ExecutionPolicy Bypass -File scripts/release.ps1",
     "postinstall": "electron-rebuild -f -w uiohook-napi"
   },
   "build": {
