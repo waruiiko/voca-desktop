@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "node scripts/dev.js",
     "build": "vite build",
+    "test": "node --test tests/*.test.js",
     "dist": "vite build && electron-builder",
     "release": "powershell -ExecutionPolicy Bypass -File scripts/release.ps1",
     "postinstall": "electron-rebuild -f -w uiohook-napi"

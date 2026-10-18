@@ -1,6 +1,8 @@
 const { app, BrowserWindow, globalShortcut, clipboard, ipcMain, Tray, Menu, nativeImage, screen, dialog, Notification, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { createSelectionReader } = require('./selection-reader');
+const { createSelectionTranslationController } = require('./selection-translation');
 
 const isDev = !!process.env.VITE_DEV_SERVER_URL;
 const RENDERER_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
@@ -14,7 +16,30 @@ let tray = null;
 let pendingText = '';
 let overlayPinned = false;
 let recentLookups = [];
+let selectionController = null;
+let selectionReader = null;
+let selectionTranslationEnabled = true;
 let apiServerStatus = { running: false, port: 27149, error: '', lastSyncAt: 0, lastSyncSummary: '' };
+let selectionDiagnosticFile = null;
+
+function reportSelectionDiagnostic(event) {
+  // Deliberately exclude selected text, clipboard data and exception messages.
+  const safeToken = value => typeof value === 'string' && /^[a-z][a-z0-9-]{0,39}$/.test(value) ? value : 'unknown';
+  const entry = { time: new Date().toISOString(), stage: safeToken(event.stage), status: safeToken(event.status) };
+  if (Number.isFinite(event.elapsedMs)) entry.elapsedMs = Math.round(event.elapsedMs);
+  if (Number.isInteger(event.attempt)) entry.attempt = event.attempt;
+  if (event.trigger) entry.trigger = safeToken(event.trigger);
+  if (event.phase) entry.phase = safeToken(event.phase);
+  if (Number.isInteger(event.exitCode)) entry.exitCode = event.exitCode;
+  if (typeof event.errorType === 'string' && /^[A-Za-z][A-Za-z0-9_.-]{0,79}$/.test(event.errorType)) entry.errorType = event.errorType;
+  if (!selectionDiagnosticFile) return;
+  try {
+    if (fs.existsSync(selectionDiagnosticFile) && fs.statSync(selectionDiagnosticFile).size > 256 * 1024) {
+      fs.renameSync(selectionDiagnosticFile, selectionDiagnosticFile + '.previous');
+    }
+    fs.appendFileSync(selectionDiagnosticFile, JSON.stringify(entry) + '\n', 'utf8');
+  } catch { /* Diagnostics must never interrupt input handling. */ }
+}
 
 // ── 默认设置 ──────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
@@ -25,6 +50,7 @@ const DEFAULT_SETTINGS = {
   ttsVoice: '',
   dailyGoal: 10,
   syncConflictStrategy: 'merge',
+  selectionTranslationEnabled: true,
 };
 
 function loadSettings() {
@@ -37,7 +63,12 @@ function loadSettings() {
 }
 
 function saveSettings(s) {
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(s, null, 2), 'utf-8');
+  const settings = { ...loadSettings(), ...s };
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
+  // Apply only after a successful write so the UI and persisted state agree.
+  selectionTranslationEnabled = settings.selectionTranslationEnabled !== false;
+  selectionController?.setEnabled(selectionTranslationEnabled);
+  if (!selectionTranslationEnabled) hideIcon();
 }
 
 // ── 数据（多生词本）───────────────────────────────────────────────
@@ -192,10 +223,12 @@ function compareVersions(a, b) {
 async function doTranslate(text, sl, tl, settings) {
   const api = settings.translateApi || 'google';
 
-  if (api === 'deepl' && settings.deeplKey) {
+  if (api === 'deepl') {
+    const deeplKey = settings.deeplKey?.trim();
+    if (!deeplKey) throw new Error('请在设置中填写 DeepL API Key 并保存');
     const res = await fetch('https://api-free.deepl.com/v2/translate', {
       method: 'POST',
-      headers: { 'Authorization': `DeepL-Auth-Key ${settings.deeplKey}`, 'Content-Type': 'application/json' },
+      headers: { 'Authorization': `DeepL-Auth-Key ${deeplKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text: [text],
         source_lang: sl === 'auto' ? undefined : sl.toUpperCase().split('-')[0],
@@ -299,7 +332,7 @@ function createScreenshotWindow() {
 let iconHideTimer = null;
 
 function showIcon(text) {
-  if (!iconWindow || !text) return;
+  if (!selectionTranslationEnabled || !iconWindow || iconWindow.isDestroyed() || !text) return;
   pendingText = text;
   const point = screen.getCursorScreenPoint();
   const { workArea: wa } = screen.getDisplayNearestPoint(point);
@@ -311,10 +344,11 @@ function showIcon(text) {
   if (iconHideTimer) clearTimeout(iconHideTimer);
   iconHideTimer = setTimeout(() => {
     if (iconWindow && !iconWindow.isDestroyed()) iconWindow.hide();
-  }, 1000);
+  }, 3000);
 }
 
 function hideIcon() {
+  pendingText = '';
   if (iconHideTimer) { clearTimeout(iconHideTimer); iconHideTimer = null; }
   if (iconWindow && !iconWindow.isDestroyed()) iconWindow.hide();
 }
@@ -480,77 +514,30 @@ function startDoubleCtrlCDetection() {
 
   try {
     const { uIOhook, UiohookKey } = require('uiohook-napi');
-    const cp = require('child_process');
-    const os = require('os');
-
-    let ctrlDown = false;
-    let lastCtrlCTime = 0;
-    let suppressCtrlCUntil = 0;
-
-    let vbsPath = null;
-    if (process.platform === 'win32') {
-      vbsPath = path.join(os.tmpdir(), 'voca-sim.vbs');
-      try {
-        fs.writeFileSync(vbsPath, 'CreateObject("WScript.Shell").SendKeys "^c"\r\n');
-      } catch (err) {
-        console.warn('[Voca] 无法创建 VBS 文件:', err.message);
-      }
-    }
-
-    let mouseDownX = 0, mouseDownY = 0;
-
-    uIOhook.on('mousedown', (e) => {
-      if (e.button === 1) { mouseDownX = e.x; mouseDownY = e.y; }
+    selectionReader = createSelectionReader({ reportDiagnostic: reportSelectionDiagnostic });
+    selectionController = createSelectionTranslationController({
+      hook: uIOhook,
+      keys: UiohookKey,
+      enabled: selectionTranslationEnabled,
+      readSelection: point => selectionReader.read(point),
+      cancelReadSelection: () => selectionReader.cancel(),
+      reportDiagnostic: reportSelectionDiagnostic,
+      readClipboard: () => clipboard.readText(),
+      showIcon, hideIcon, showOverlay,
+      isOwnWindowFocused: (point) => {
+        if (BrowserWindow.getFocusedWindow()) return true;
+        if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return false;
+        // Floating windows can receive clicks without taking keyboard focus.
+        const dipPoint = screen.screenToDipPoint({ x: point.x, y: point.y });
+        return [iconWindow, overlayWindow, screenshotWindow].some(win => {
+          if (!win || win.isDestroyed() || !win.isVisible()) return false;
+          const bounds = win.getBounds();
+          return dipPoint.x >= bounds.x && dipPoint.x < bounds.x + bounds.width
+            && dipPoint.y >= bounds.y && dipPoint.y < bounds.y + bounds.height;
+        });
+      },
     });
-
-    uIOhook.on('mouseup', (e) => {
-      if (e.button !== 1 || !vbsPath) return;
-      const dx = e.x - mouseDownX, dy = e.y - mouseDownY;
-      if (Math.sqrt(dx * dx + dy * dy) < 15) return;
-
-      const prevClip = clipboard.readText();
-      suppressCtrlCUntil = Date.now() + 600;
-
-      cp.execFile('cscript.exe', ['//nologo', vbsPath], { windowsHide: true }, () => {
-        suppressCtrlCUntil = 0;
-        setTimeout(() => {
-          const newText = clipboard.readText().trim();
-          if (newText && newText !== prevClip.trim() && newText.length <= 5000) {
-            hideIcon();
-            showIcon(newText);
-          }
-        }, 150);
-      });
-    });
-
-    uIOhook.on('keydown', (e) => {
-      if (e.keycode === UiohookKey.Ctrl || e.keycode === UiohookKey.CtrlRight) { ctrlDown = true; return; }
-      if (ctrlDown && e.keycode === UiohookKey.C) {
-        if (Date.now() < suppressCtrlCUntil) return;
-        const now = Date.now();
-        const elapsed = now - lastCtrlCTime;
-        if (elapsed < 600 && elapsed > 0) {
-          lastCtrlCTime = 0;
-          hideIcon();
-          setTimeout(() => {
-            const text = clipboard.readText().trim();
-            if (text && text.length <= 5000) showOverlay(text);
-          }, 100);
-        } else {
-          lastCtrlCTime = now;
-          setTimeout(() => {
-            const text = clipboard.readText().trim();
-            if (text && text.length <= 5000) showIcon(text);
-          }, 100);
-        }
-      }
-    });
-
-    uIOhook.on('keyup', (e) => {
-      if (e.keycode === UiohookKey.Ctrl || e.keycode === UiohookKey.CtrlRight) ctrlDown = false;
-    });
-
-    uIOhook.start();
+    selectionController.start();
     console.log('[Voca] 划词翻译 + 双击 Ctrl+C 已启用');
   } catch (e) {
     console.warn('[Voca] uiohook-napi 不可用，降级为 Ctrl+Shift+D:', e.message);
@@ -672,8 +659,9 @@ ipcMain.handle('open-translate', (_, text) => {
 });
 
 ipcMain.handle('icon-clicked', () => {
+  const text = pendingText;
   hideIcon();
-  if (pendingText) showOverlay(pendingText);
+  if (selectionTranslationEnabled && text) showOverlay(text);
 });
 
 ipcMain.handle('translate', async (_, text, sl, tl) => {
@@ -1088,6 +1076,8 @@ function startApiServer() {
 app.whenReady().then(() => {
   DATA_FILE = path.join(app.getPath('userData'), 'voca-words.json');
   SETTINGS_FILE = path.join(app.getPath('userData'), 'voca-settings.json');
+  selectionDiagnosticFile = path.join(app.getPath('userData'), 'selection-diagnostics.jsonl');
+  selectionTranslationEnabled = loadSettings().selectionTranslationEnabled !== false;
   createMainWindow();
   createOverlayWindow();
   createIconWindow();
@@ -1102,7 +1092,8 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('will-quit', () => {
-  try { require('uiohook-napi').uIOhook.stop(); } catch {}
+  selectionController?.stop();
+  selectionReader?.stop();
   globalShortcut.unregisterAll();
 });
 app.on('activate', () => mainWindow?.show());

@@ -36,6 +36,23 @@
         </div>
       </section>
 
+      <!-- 划词翻译 -->
+      <section class="s-section">
+        <h2 class="s-title">划词翻译</h2>
+        <div class="s-card">
+          <div class="s-row">
+            <div class="s-row-body">
+              <span class="s-label">开启划词翻译</span>
+              <span class="s-desc">关闭后不再自动显示“译”按钮；双击 Ctrl+C 和截图翻译仍可使用。</span>
+            </div>
+            <label class="s-toggle">
+              <input type="checkbox" v-model="settings.selectionTranslationEnabled" aria-label="开启划词翻译" />
+              <span class="s-toggle-track"></span>
+            </label>
+          </div>
+        </div>
+      </section>
+
       <!-- 默认语言 -->
       <section class="s-section">
         <h2 class="s-title">默认语言</h2>
@@ -166,8 +183,9 @@
       </section>
 
       <div class="s-actions">
-        <button class="btn-save" @click="save">保存设置</button>
-        <span class="save-hint" v-if="saved">✓ 已保存</span>
+        <button class="btn-save" @click="save" :disabled="saving">{{ saving ? '保存中…' : '保存设置' }}</button>
+        <span class="save-hint" v-if="saved" role="status">✓ 已保存</span>
+        <span class="save-error" v-if="saveError" role="alert">{{ saveError }}</span>
         <span class="save-hint" v-if="notice">{{ notice }}</span>
       </div>
     </template>
@@ -249,8 +267,12 @@ const settings = ref({
   targetLang: 'zh-CN',
   ttsVoice: '',
   dailyGoal: 10,
+  syncConflictStrategy: 'merge',
+  selectionTranslationEnabled: true,
 });
 const saved = ref(false);
+const saving = ref(false);
+const saveError = ref('');
 const notice = ref('');
 const importingId = ref(null);
 const loginItem = ref(false);
@@ -323,7 +345,7 @@ const presets = [
 ];
 
 onMounted(async () => {
-  settings.value = await window.vocaAPI.loadSettings();
+  settings.value = { ...settings.value, ...await window.vocaAPI.loadSettings() };
   if (!settings.value.ttsVoice) settings.value.ttsVoice = '';
   loginItem.value = await window.vocaAPI.getLoginItem();
   await refreshSyncStatus();
@@ -401,9 +423,22 @@ async function toggleLoginItem() {
 }
 
 async function save() {
-  await window.vocaAPI.saveSettings(settings.value);
-  saved.value = true;
-  setTimeout(() => { saved.value = false; }, 2000);
+  if (saving.value) return;
+  saving.value = true;
+  saved.value = false;
+  saveError.value = '';
+  try {
+    // Vue 的响应式对象是 Proxy，Electron IPC 只能传递可序列化的普通数据。
+    const snapshot = JSON.parse(JSON.stringify(settings.value));
+    const result = await window.vocaAPI.saveSettings(snapshot);
+    if (result === false) throw new Error('设置未能写入磁盘');
+    saved.value = true;
+    setTimeout(() => { saved.value = false; }, 2000);
+  } catch (err) {
+    saveError.value = `保存失败：${err?.message || '请重试'}`;
+  } finally {
+    saving.value = false;
+  }
 }
 
 async function importPreset(preset) {
@@ -559,12 +594,14 @@ async function importPreset(preset) {
 }
 .s-toggle input:checked + .s-toggle-track::after { transform: translateX(18px); }
 
-.s-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.s-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
 .btn-save {
   padding: 9px 24px; background: #6366f1; color: #fff;
   border: none; border-radius: 10px; font-size: 14px; font-weight: 600;
   cursor: pointer; font-family: inherit; transition: background .15s;
 }
 .btn-save:hover { background: #4f52d3; }
+.btn-save:disabled { background: #aaa; cursor: wait; }
 .save-hint { font-size: 13px; color: #27ae60; }
+.save-error { font-size: 13px; color: #c0392b; overflow-wrap: anywhere; }
 </style>
