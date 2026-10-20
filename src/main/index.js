@@ -193,16 +193,26 @@ async function doTranslate(text, sl, tl, settings) {
   const api = settings.translateApi || 'google';
 
   if (api === 'deepl' && settings.deeplKey) {
+    // DeepL uses script variants for Chinese and hyphens in regional codes.
+    const targetLang = tl.toUpperCase();
+    const deeplTargetLang = { 'ZH-CN': 'ZH-HANS', 'ZH-TW': 'ZH-HANT' }[targetLang] || targetLang;
     const res = await fetch('https://api-free.deepl.com/v2/translate', {
       method: 'POST',
       headers: { 'Authorization': `DeepL-Auth-Key ${settings.deeplKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text: [text],
         source_lang: sl === 'auto' ? undefined : sl.toUpperCase().split('-')[0],
-        target_lang: tl.toUpperCase().replace('-', '_'),
+        target_lang: deeplTargetLang,
       }),
     });
-    if (!res.ok) throw new Error(`DeepL HTTP ${res.status}`);
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const error = await res.json();
+        if (typeof error.message === 'string') detail = error.message.replaceAll(settings.deeplKey, '[已隐藏]');
+      } catch { /* Keep the HTTP status if the service returns a non-JSON error. */ }
+      throw new Error(`DeepL HTTP ${res.status}${detail ? `：${detail}` : ''}`);
+    }
     const d = await res.json();
     return d.translations[0].text;
   }
