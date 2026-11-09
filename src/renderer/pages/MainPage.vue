@@ -22,7 +22,7 @@
         <button class="nav-item" :class="{ active: tab === 'search' }" @click="tab = 'search'; globalSearch = ''">
           <span class="nav-icon">🔍</span> 全局搜索
         </button>
-        <button class="nav-item" :class="{ active: tab === 'settings' }" @click="tab = 'settings'">
+        <button class="nav-item" :class="{ active: tab === 'settings' }" @click="openSettings()">
           <span class="nav-icon">⚙️</span> 设置
         </button>
       </nav>
@@ -133,7 +133,7 @@
       </div>
 
       <!-- 闪卡复习 -->
-      <FlashCard v-if="tab === 'review'" :words="flashPool" @update="onPoolCardUpdate" style="flex:1;overflow:hidden;" />
+      <FlashCard v-if="tab === 'review'" :words="flashPool" :review-options="data.reviewOptions" :review-logs="data.reviewLogs" @committed="data = $event" @open-settings="openSettings('review')" @close-review="tab = 'words'" style="flex:1;overflow:hidden;" />
 
       <!-- 翻译工作台 -->
       <TranslatePage v-if="tab === 'translate'" ref="translateRef" style="flex:1;overflow:hidden;" />
@@ -174,7 +174,7 @@
 
       <!-- 设置 -->
       <div v-if="tab === 'settings'" class="settings-wrap">
-        <SettingsPage @preset-imported="onPresetImported" />
+        <SettingsPage :initial-tab="settingsTab" :review-options="data.reviewOptions" @committed="data = $event" @preset-imported="onPresetImported" />
       </div>
     </main>
   </div>
@@ -203,7 +203,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { buildQueue, newRemaining, stageLabel } from '../composables/review-queue.mjs';
 import FlashCard from '../components/FlashCard.vue';
 import SettingsPage from './SettingsPage.vue';
 import TranslatePage from './TranslatePage.vue';
@@ -211,6 +212,8 @@ import WordDetail from '../components/WordDetail.vue';
 import StatsPage from './StatsPage.vue';
 
 const tab = ref('words');
+const settingsTab = ref('general');
+function openSettings(section = 'general') { settingsTab.value = section; tab.value = 'settings'; }
 const translateRef = ref(null);
 const detailWord = ref(null);
 const isDetailWordSaved = computed(() => {
@@ -256,10 +259,13 @@ const filteredWords = computed(() => {
 
 const flashPool = computed(() => data.value.flashPool || []);
 const poolSet = computed(() => new Set(flashPool.value.map(p => p.bookId + ':' + p.key)));
+const reviewClock = ref(Date.now());
+let reviewTimer;
+onMounted(() => { reviewTimer = setInterval(() => { reviewClock.value = Date.now(); }, 1000); });
+onUnmounted(() => clearInterval(reviewTimer));
 
 const dueCount = computed(() => {
-  const now = Date.now();
-  return flashPool.value.filter(w => !w.mastered && (!w.nextReview || w.nextReview <= now)).length;
+  return buildQueue(flashPool.value, { now: reviewClock.value, limit: -1, newLimit: newRemaining(data.value.reviewLogs, data.value.reviewOptions, reviewClock.value) }).length;
 });
 
 async function reloadData() {
@@ -440,29 +446,6 @@ async function removeAllFromPool(e) {
   await window.vocaAPI.saveData(toPlain(updated));
 }
 
-// When a flashcard review updates a word, sync it back into the pool and the source book
-async function onPoolCardUpdate(updatedWord) {
-  const bookId = updatedWord.bookId;
-  const key = updatedWord.key;
-
-  // Update pool entry
-  const pool = (data.value.flashPool || []).map(p =>
-    (p.bookId === bookId && p.key === key) ? { ...p, ...updatedWord } : p
-  );
-
-  // Update the word in the source book too
-  const book = data.value.books[bookId];
-  let books = data.value.books;
-  if (book?.words[key]) {
-    const words = { ...book.words, [key]: { ...book.words[key], ...updatedWord } };
-    books = { ...books, [bookId]: { ...book, words } };
-  }
-
-  const updated = { ...data.value, flashPool: pool, books };
-  data.value = updated;
-  await window.vocaAPI.saveData(toPlain(updated));
-}
-
 function onWordMove({ word, targetId }) {
   const srcId = data.value.activeBookId;
   if (!data.value.books[targetId] || !data.value.books[srcId]) return;
@@ -639,20 +622,10 @@ function cancelEdit() { editingKey.value = null; }
 
 // ── 记忆标签 ─────────────────────────────────────────────────────
 function memLabel(w) {
-  const rc = w.reviewCount || 0;
-  const iv = w.interval || 1;
-  if (rc === 0) return '🌱 新词';
-  if (iv < 7) return '🌿 初记';
-  if (iv < 21) return '🌳 熟悉';
-  return '💎 掌握';
+  return stageLabel(w);
 }
 function memClass(w) {
-  const rc = w.reviewCount || 0;
-  const iv = w.interval || 1;
-  if (rc === 0) return 'mem-new';
-  if (iv < 7) return 'mem-learning';
-  if (iv < 21) return 'mem-familiar';
-  return 'mem-mastered';
+  return w.fsrs?.state === 2 ? 'mem-familiar' : w.reviewCount ? 'mem-learning' : 'mem-new';
 }
 </script>
 

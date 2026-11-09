@@ -95,12 +95,12 @@
             <div class="wd-stat-l">复习次数</div>
           </div>
           <div class="wd-stat">
-            <div class="wd-stat-v">{{ word.interval || 1 }} 天</div>
+            <div class="wd-stat-v">{{ word.interval ? Math.round(word.interval * 1000) / 1000 + ' 天' : '未安排' }}</div>
             <div class="wd-stat-l">当前间隔</div>
           </div>
           <div class="wd-stat">
-            <div class="wd-stat-v">{{ Math.round((word.easeFactor || 2.5) * 100) }}%</div>
-            <div class="wd-stat-l">掌握系数</div>
+            <div class="wd-stat-v">{{ word.fsrs ? ['新词', '学习中', '间隔复习', '重新学习'][word.fsrs.state] : word.reviewCount ? '待迁移' : '新词' }}</div>
+            <div class="wd-stat-l">学习阶段</div>
           </div>
           <div class="wd-stat">
             <div class="wd-stat-v">{{ word.lastReview ? fmtDate(word.lastReview) : '未复习' }}</div>
@@ -177,20 +177,12 @@ const bookList = computed(() => Object.entries(props.books || {}).map(([id, b]) 
 const targetBooks = computed(() => bookList.value.filter(b => b.id !== props.currentBookId));
 
 const memLabel = computed(() => {
-  const rc = props.word.reviewCount || 0;
-  const iv = props.word.interval || 1;
-  if (rc === 0) return '🌱 新词';
-  if (iv < 7) return '🌿 初记';
-  if (iv < 21) return '🌳 熟悉';
-  return '💎 掌握';
+  const w = props.word;
+  if (w.mastered) return '已暂停';
+  return w.fsrs ? ['新词', '学习中', '间隔复习', '重新学习'][w.fsrs.state] : w.reviewCount ? '待迁移' : '新词';
 });
 const memClass = computed(() => {
-  const rc = props.word.reviewCount || 0;
-  const iv = props.word.interval || 1;
-  if (rc === 0) return 'badge-new';
-  if (iv < 7) return 'badge-learning';
-  if (iv < 21) return 'badge-familiar';
-  return 'badge-mastered';
+  return props.word.fsrs?.state === 2 ? 'badge-familiar' : props.word.reviewCount ? 'badge-learning' : 'badge-new';
 });
 
 async function fetchDetail() {

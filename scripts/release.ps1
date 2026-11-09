@@ -2,7 +2,7 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$Version,
 
-  [string]$OutputDir = "C:\tmp\voca-release-$Version",
+  [string]$OutputDir = (Join-Path (Split-Path $PSScriptRoot -Parent) "release"),
 
   [switch]$SkipBuild
 )
@@ -44,7 +44,7 @@ if (-not $SkipBuild) {
 
 Write-Step "Packaging to $OutputDir"
 if (Test-Path $OutputDir) {
-  Write-Host "Output directory exists. Remove it manually if Windows reports access denied." -ForegroundColor Yellow
+  Write-Host "Reusing the output directory. Exit Voca from the tray before packaging." -ForegroundColor Yellow
 }
 
 .\node_modules\.bin\electron-builder.cmd --config.directories.output="$OutputDir"

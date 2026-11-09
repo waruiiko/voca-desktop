@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('vocaAPI', {
   openExternal:       (url)        => ipcRenderer.invoke('open-external', url),
   // 当前生词本快捷读写（向后兼容）
   loadWords:          ()           => ipcRenderer.invoke('load-words'),
+  overlayItem:        (request)    => ipcRenderer.invoke('overlay-item', request),
   saveWords:          (words)      => ipcRenderer.invoke('save-words', words),
   // 翻译（sl/tl 可选，不传则用设置里的默认值）
   translate:          (text, sl, tl) => ipcRenderer.invoke('translate', text, sl, tl),
@@ -38,6 +39,9 @@ contextBridge.exposeInMainWorld('vocaAPI', {
   toggleOverlayPin:   ()           => ipcRenderer.invoke('toggle-overlay-pin'),
   // 统计
   updateStats:        (count)      => ipcRenderer.invoke('update-stats', count),
+  previewReview:      (identity)   => ipcRenderer.invoke('preview-review', identity),
+  reviewCard:         (request)    => ipcRenderer.invoke('review-card', request),
+  saveReviewOptions:  (options)    => ipcRenderer.invoke('save-review-options', options),
   // OCR
   captureRegionOcr:   (x, y, w, h) => ipcRenderer.invoke('capture-region-ocr', x, y, w, h),
   cancelScreenshot:   ()           => ipcRenderer.invoke('cancel-screenshot'),

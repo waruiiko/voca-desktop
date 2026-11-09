@@ -41,7 +41,7 @@
           <div class="sp-goal-info">
             <span class="sp-goal-cur">{{ stats.todayReviewed || 0 }}</span>
             <span class="sp-goal-sep"> / </span>
-            <span class="sp-goal-total">{{ dailyGoal }} 词</span>
+            <span class="sp-goal-total">{{ dailyGoal }} 次作答</span>
             <span class="sp-goal-done" v-if="goalPct >= 100">✓ 已完成</span>
           </div>
           <div class="sp-goal-bar-wrap">
@@ -52,7 +52,7 @@
 
       <!-- Mastery distribution -->
       <div class="sp-section">
-        <div class="sp-section-title">掌握程度分布（闪卡池）</div>
+        <div class="sp-section-title">学习阶段分布（闪卡池）</div>
         <div v-if="poolWords.length === 0" class="sp-empty">闪卡池为空，在生词本点击 ⚡ 加入单词</div>
         <div v-else class="sp-dist">
           <div class="sp-dist-bar">
@@ -94,11 +94,15 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { stageLabel, buildQueue, newRemaining, localDay } from '../composables/review-queue.mjs';
 
 const props = defineProps({ data: Object, settings: Object });
 
-const stats = computed(() => props.data?.stats || {});
+const stats = computed(() => {
+  const value = props.data?.stats || {};
+  return { ...value, todayReviewed: value.lastStudyDate === localDay(now.value) ? value.todayReviewed : 0 };
+});
 const flashPool = computed(() => props.data?.flashPool || []);
 const dailyGoal = computed(() => props.settings?.dailyGoal || 10);
 const goalPct = computed(() => Math.min(100, Math.round(((stats.value.todayReviewed || 0) / dailyGoal.value) * 100)));
@@ -112,30 +116,22 @@ const totalWords = computed(() => {
   return n;
 });
 
-const now = Date.now();
+const now = ref(Date.now());
+let reviewTimer;
+onMounted(() => { reviewTimer = setInterval(() => { now.value = Date.now(); }, 1000); });
+onUnmounted(() => clearInterval(reviewTimer));
 const dueCount = computed(() =>
-  poolWords.value.filter(w => !w.mastered && (!w.nextReview || w.nextReview <= now)).length
+  buildQueue(poolWords.value, { now: now.value, limit: -1, newLimit: newRemaining(props.data?.reviewLogs, props.data?.reviewOptions, now.value) }).length
 );
 
 const distSegments = computed(() => {
   const pool = poolWords.value;
   if (!pool.length) return [];
-  let newW = 0, learning = 0, familiar = 0, mastered = 0;
-  for (const w of pool) {
-    const rc = w.reviewCount || 0;
-    const iv = w.interval || 1;
-    if (rc === 0) newW++;
-    else if (iv < 7) learning++;
-    else if (iv < 21) familiar++;
-    else mastered++;
-  }
   const total = pool.length;
-  return [
-    { label: '新词', count: newW,     pct: Math.round(newW     / total * 100), color: '#86efac' },
-    { label: '初记', count: learning, pct: Math.round(learning / total * 100), color: '#67e8f9' },
-    { label: '熟悉', count: familiar, pct: Math.round(familiar / total * 100), color: '#818cf8' },
-    { label: '掌握', count: mastered, pct: Math.round(mastered / total * 100), color: '#f472b6' },
-  ].filter(s => s.count > 0);
+  return ['新词', '学习中', '间隔复习', '重新学习', '待迁移', '已暂停'].map((label, i) => {
+    const count = pool.filter(w => stageLabel(w) === label).length;
+    return { label, count, pct: Math.round(count / total * 100), color: ['#86efac', '#67e8f9', '#818cf8', '#f472b6', '#fbbf24', '#94a3b8'][i] };
+  }).filter(s => s.count > 0);
 });
 
 const maxBookCount = computed(() => {
