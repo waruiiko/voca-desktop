@@ -1,6 +1,7 @@
 const { app, BrowserWindow, globalShortcut, clipboard, ipcMain, Tray, Menu, nativeImage, screen, dialog, Notification, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { previewReview, applyReview, reviewOptions, availableReviewCount } = require('./review-scheduler');
 
 const isDev = !!process.env.VITE_DEV_SERVER_URL;
 const RENDERER_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
@@ -61,7 +62,9 @@ function loadData() {
 
 function saveData(data) {
   createDataBackup();
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  const temporary = DATA_FILE + '.tmp';
+  fs.writeFileSync(temporary, JSON.stringify(data, null, 2), 'utf-8');
+  fs.renameSync(temporary, DATA_FILE);
   try { fs.copyFileSync(DATA_FILE, DATA_FILE + '.bak'); } catch {}
 }
 
@@ -324,9 +327,7 @@ function checkDueAndNotify() {
   try {
     if (!Notification.isSupported()) return;
     const data = loadData();
-    const pool = data.flashPool || [];
-    const now = Date.now();
-    const due = pool.filter(w => !w.mastered && (!w.nextReview || w.nextReview <= now)).length;
+    const due = availableReviewCount(data);
     if (due > 0) {
       const n = new Notification({
         title: 'Voca 复习提醒',
@@ -626,6 +627,53 @@ ipcMain.handle('check-for-updates', async () => {
   } catch (e) {
     return { success: false, error: e.message, currentVersion: app.getVersion() };
   }
+});
+
+ipcMain.handle('preview-review', (_, identity) => {
+  const data = loadData();
+  const word = data.flashPool.find(w => w.bookId === identity.bookId && w.key === identity.key);
+  if (!word) throw new Error('卡片已被删除');
+  return previewReview(word, data.reviewOptions);
+});
+
+ipcMain.handle('review-card', (_, request) => {
+  const result = applyReview(loadData(), request);
+  if (!result.duplicate) {
+    saveData(result.data);
+    mainWindow?.webContents.send('words-updated');
+  }
+  return result;
+});
+
+ipcMain.handle('save-review-options', (_, input) => {
+  const data = loadData();
+  data.reviewOptions = reviewOptions({ ...data.reviewOptions, ...input });
+  saveData(data);
+  return data;
+});
+
+ipcMain.handle('overlay-item', (_, request) => {
+  const text = typeof request?.text === 'string' ? request.text.trim() : '';
+  if (!text || text.length > 5000 || !['status', 'save', 'unsave', 'add-to-pool'].includes(request.action)) throw new Error('收藏请求无效');
+  const data = loadData();
+  const bookId = data.saveBookId || data.activeBookId;
+  const book = data.books[bookId];
+  if (!book) throw new Error('收藏目标词书不存在');
+  const key = text.toLowerCase();
+  const matches = w => w.bookId === bookId && w.key === key;
+  if (request.action === 'unsave') {
+    delete book.words[key];
+    data.flashPool = data.flashPool.filter(w => !matches(w));
+  } else if (request.action !== 'status') {
+    if (typeof request.translation !== 'string' || !request.translation.trim()) throw new Error('请等待翻译成功后再操作');
+    if (!book.words[key]) book.words[key] = { word: text, translation: request.translation, timestamp: Date.now(), reviewCount: 0 };
+    if (request.action === 'add-to-pool' && !data.flashPool.some(matches)) data.flashPool.push({ ...book.words[key], key, bookId });
+  }
+  if (request.action !== 'status') {
+    saveData(data);
+    mainWindow?.webContents.send('words-updated');
+  }
+  return { saved: !!book.words[key], inPool: data.flashPool.some(matches) };
 });
 
 ipcMain.handle('load-words', () => {

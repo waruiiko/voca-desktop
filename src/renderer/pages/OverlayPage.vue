@@ -58,11 +58,13 @@
     </div>
     <div class="ov-actions">
       <button class="ov-btn ov-tts" @click="speak" title="朗读">🔊</button>
-      <button class="ov-btn ov-save" @click="save" v-if="result && !saved">⭐ 收藏</button>
-      <button class="ov-btn ov-unsave" @click="unsave" v-if="saved">✕ 取消收藏</button>
+      <button class="ov-btn ov-save" @click="save" :disabled="busy" v-if="translationReady && !saved">⭐ 收藏</button>
+      <button class="ov-btn ov-unsave" @click="unsave" :disabled="busy" v-if="saved">✕ 取消收藏</button>
+      <button class="ov-btn ov-pool" @click="persistItem('add-to-pool')" :disabled="busy || inPool" v-if="translationReady">{{ inPool ? '✓ 已加入闪卡池' : '⚡ 加入闪卡池' }}</button>
       <button class="ov-btn ov-open" @click="openTranslate" title="在翻译工作台打开">↗</button>
       <button class="ov-btn ov-close" @click="close">✕</button>
     </div>
+    <div class="ov-error" role="alert" v-if="actionError">{{ actionError }}</div>
   </div>
 </template>
 
@@ -76,6 +78,11 @@ const text = ref('');
 const result = ref('');
 const loading = ref(false);
 const saved = ref(false);
+const inPool = ref(false);
+const busy = ref(false);
+const actionError = ref('');
+const translationReady = ref(false);
+let generation = 0;
 const pinned = ref(false);
 const recentLookups = ref([]);
 
@@ -139,18 +146,23 @@ onMounted(async () => {
   document.addEventListener('click', closeDropdowns);
 
   window.vocaAPI.onTranslate(async (t) => {
+    const token = ++generation;
     text.value = t;
     result.value = '';
     loading.value = true;
+    translationReady.value = false;
+    saved.value = false; inPool.value = false; actionError.value = '';
     showSl.value = false;
     showTl.value = false;
 
-    const [res, words] = await Promise.all([
+    const [res, status] = await Promise.all([
       window.vocaAPI.translate(t.replace(/\n+/g, ' '), sl.value, tl.value),
-      window.vocaAPI.loadWords(),
+      window.vocaAPI.overlayItem({ action: 'status', text: t }),
     ]);
+    if (token !== generation) return;
     result.value = res.success ? res.text : ('翻译失败：' + res.error);
-    saved.value = !!words[t.trim().toLowerCase()];
+    saved.value = status.saved; inPool.value = status.inPool;
+    translationReady.value = !!(res.success && res.text);
     loading.value = false;
     resizeWindow();
 
@@ -163,20 +175,27 @@ onMounted(async () => {
 });
 
 async function loadRecent(r) {
+  const token = ++generation;
   text.value = r.text;
   result.value = r.translation;
-  saved.value = false;
-  const words = await window.vocaAPI.loadWords();
-  saved.value = !!words[r.text.trim().toLowerCase()];
+  saved.value = false; inPool.value = false; actionError.value = ''; loading.value = false;
+  translationReady.value = !!r.translation;
+  const status = await window.vocaAPI.overlayItem({ action: 'status', text: r.text });
+  if (token !== generation) return;
+  saved.value = status.saved; inPool.value = status.inPool;
   resizeWindow();
 }
 
 async function retranslate() {
   if (!text.value) return;
+  const token = ++generation;
+  translationReady.value = false;
   loading.value = true;
   result.value = '';
   resizeWindow();
   const res = await window.vocaAPI.translate(text.value.replace(/\n+/g, ' '), sl.value, tl.value);
+  if (token !== generation) return;
+  translationReady.value = !!(res.success && res.text);
   result.value = res.success ? res.text : ('翻译失败：' + res.error);
   loading.value = false;
   resizeWindow();
@@ -187,25 +206,21 @@ function speak() {
 }
 
 async function save() {
-  const word = text.value.trim().toLowerCase();
-  if (!word || !result.value) return;
-  const words = await window.vocaAPI.loadWords();
-  if (!words[word]) {
-    words[word] = { word: text.value.trim(), translation: result.value, timestamp: Date.now(), reviewCount: 0 };
-    await window.vocaAPI.saveWords(words);
-    window.vocaAPI.notifyWordsUpdated();
-  }
-  saved.value = true;
+  await persistItem('save');
 }
 
 async function unsave() {
-  const word = text.value.trim().toLowerCase();
-  if (!word) return;
-  const words = await window.vocaAPI.loadWords();
-  delete words[word];
-  await window.vocaAPI.saveWords(words);
-  window.vocaAPI.notifyWordsUpdated();
-  saved.value = false;
+  await persistItem('unsave');
+}
+async function persistItem(action) {
+  if (busy.value || (action !== 'unsave' && !translationReady.value)) return;
+  const token = generation;
+  busy.value = true; actionError.value = '';
+  try {
+    const status = await window.vocaAPI.overlayItem({ action, text: text.value, translation: result.value });
+    if (token === generation) { saved.value = status.saved; inPool.value = status.inPool; }
+  } catch (e) { if (token === generation) actionError.value = `操作失败，请重试：${e.message}`; }
+  finally { busy.value = false; resizeWindow(); }
 }
 
 function openTranslate() {
@@ -336,7 +351,7 @@ body.is-overlay { background: transparent !important; overflow: hidden; }
 .ov-translation.loading { color: rgba(255,255,255,0.4); font-style: italic; }
 
 .ov-actions {
-  display: flex; align-items: center; gap: 5px; justify-content: flex-end;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px; justify-content: flex-end;
 }
 .ov-btn {
   background: rgba(255,255,255,0.08); border: none;
@@ -350,4 +365,7 @@ body.is-overlay { background: transparent !important; overflow: hidden; }
 .ov-unsave { color: #ff9a9a; }
 .ov-unsave:hover { background: rgba(255,154,154,0.15); color: #ff9a9a; }
 .ov-close  { color: rgba(255,255,255,0.35); }
+.ov-pool { color: #c4b5fd; }
+.ov-btn:disabled { opacity: .55; cursor: default; }
+.ov-error { color: #ffb4b4; font-size: 11px; margin-top: 6px; overflow-wrap: anywhere; }
 </style>
